@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Individual Report {{.Year}}</title>
+  <style>
+    body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;margin:40px auto;max-width:1100px;background:#f9f9fb;color:#333;line-height:1.6}
+    .container{background:white;padding:30px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,.1)}
+    h1{text-align:center;color:#1e40af;margin-bottom:10px;font-size:28px;border-bottom:3px solid #3b82f6;padding-bottom:8px}
+    .header-info{display:flex;justify-content:space-between;flex-wrap:wrap;margin:20px 0;font-size:16px}
+    .header-info strong{color:#1e40af}
+    hr{border:none;height:2px;background:#ddd;margin:25px 0}
+    h2{color:#1e40af;border-left:4px solid #3b82f6;padding-left:12px;margin-top:30px}
+    .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:15px;margin:20px 0;font-size:15px}
+    .summary-item{background:#eff6ff;padding:12px;border-radius:8px;text-align:center;border:1px solid #bfdbfe}
+    .summary-item strong{display:block;font-size:24px;color:#1e40af}
+    table{width:100%;border-collapse:collapse;margin:25px 0;font-size:14px}
+    th{background:#fbbf24 !important;color:#1f2937;text-align:left;font-weight:600;padding:14px 10px;border-bottom:2px solid #d97706}
+    td{padding:12px 10px;border-bottom:1px solid #e5e7eb;vertical-align:top}
+    tr:nth-child(even){background:#f9fafb}
+    tr:hover{background:#fef3c7}
+    .empty{color:#9ca3af;font-style:italic}
+    .notes{margin-top:40px;padding:16px;background:#f3f4f6;border-left:4px solid #6b7280;font-size:14px;color:#4b5563}
+    .footer{text-align:center;margin-top:50px;color:#6b7280;font-size:13px}
+    a{color:#1e40af;text-decoration:none}
+    a:hover{text-decoration:underline}
+    .report-table th, .report-table td {vertical-align:middle}
+    .report-table .merged-top {background:#fbbf24;text-align:center;font-weight:600}
+    .report-table .dept-cell {width:12%}
+    .report-table .period-cell {width:12%}
+    .report-table .submitted-cell {width:12%}
+    .report-table .title-cell {width:15%}
+    .report-table .ach-cell {width:12%}
+    .report-table .chal-cell {width:12%}
+    .report-table .sup-cell {width:10%}
+    .report-table .supfrom-cell {width:10%}
+    .report-table .follow-cell {width:10%}
+    .report-table .date-cell {width:8%}
+    .report-table .ev-cell {width:9%}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>INDIVIDUAL REPORT {{.Year}}</h1>
+
+    <table class="report-table" style="margin-bottom:30px;">
+      <tr>
+        <td class="merged-top dept-cell"><strong>Dept:</strong></td>
+        <td colspan="3" style="background:#fbbf24;text-align:center;font-weight:600;">{{.Department}}</td>
+        <td class="merged-top submitted-cell"><strong>Submitted by:</strong></td>
+        <td colspan="3" style="background:#fbbf24;text-align:center;font-weight:600;">{{.SubmittedBy}}</td>
+      </tr>
+      <tr>
+        <td class="merged-top period-cell"><strong>PERIOD</strong></td>
+        <td colspan="7" style="background:#fbbf24;text-align:center;font-weight:600;">{{.Period}}</td>
+      </tr>
+      <tr>
+        <th class="title-cell">KEY ACTIVITIES / TASKS</th>
+        <th class="ach-cell">ACHIEVEMENTS</th>
+        <th class="chal-cell">CHALLENGES ENCOUNTERED</th>
+        <th class="sup-cell">SUPPORT REQUIRED</th>
+        <th class="supfrom-cell">SUPPORT FROM (WHOM / WHICH DEPT)</th>
+        <th class="follow-cell">FOLLOW-UP ACTIVITIES</th>
+        <th class="date-cell">COMPLETION DATE</th>
+        <th class="ev-cell">LOCATION OF EVIDENCE / ATTACHMENT</th>
+      </tr>
+      {{range .Tasks}}
+      <tr>
+        <td><strong>{{.Title}}</strong></td>
+        <td>{{if .Achievements}}{{.Achievements}}{{else}}<span class="empty">—</span>{{end}}</td>
+        <td>{{if .Challenges}}{{.Challenges}}{{else}}<span class="empty">—</span>{{end}}</td>
+        <td>{{if .SupportRequired}}{{.SupportRequired}}{{else}}<span class="empty">—</span>{{end}}</td>
+        <td>{{if .SupportFrom}}{{.SupportFrom}}{{else}}<span class="empty">—</span>{{end}}</td>
+        <td>{{if .FollowUp}}{{.FollowUp}}{{else}}<span class="empty">—</span>{{end}}</td>
+        <td>{{if .CompletedAt}}{{.CompletedAt.Format "2006-01-02"}}{{else}}<span class="empty">—</span>{{end}}</td>
+        <td>
+          {{if .AttachmentURL}}
+            <a href="{{.AttachmentURL}}" target="_blank">Open Attachment</a>
+          {{else}}
+            <span class="empty">—</span>
+          {{end}}
+        </td>
+      </tr>
+      {{end}}
+    </table>
+
+    <h2>Activities Summary</h2>
+    <div class="summary">
+      <div class="summary-item">
+        <strong>{{index .Stats "total"}}</strong>
+        Total Activities
+      </div>
+      <div class="summary-item">
+        <strong>{{index .Stats "completed"}}</strong>
+        Completed
+      </div>
+      <div class="summary-item">
+        <strong>{{sub (index .Stats "total") (index .Stats "completed")}}</strong>
+        Pending
+      </div>
+    </div>
+
+    <h2>By Source</h2>
+    <div class="summary">
+      {{range $src, $cnt := index .Stats "by_source"}}
+      <div class="summary-item">
+        <strong>{{$cnt}}</strong>
+        {{title $src}}
+      </div>
+      {{end}}
+    </div>
+
+    <h2>By Status</h2>
+    <div class="summary">
+      {{range $st, $cnt := index .Stats "by_status"}}
+      <div class="summary-item">
+        <strong>{{$cnt}}</strong>
+        {{title $st}}
+      </div>
+      {{end}}
+    </div>
+
+    <div class="notes">
+      <strong>Notes:</strong><br>
+      If applicable, attach or include links to any supporting documents, screenshots, or records that provide additional evidence of the activities and achievements listed above.
+    </div>
+
+    <div class="footer">
+      Generated on {{.Date}} | Individual Report System
+    </div>
+  </div>
+</body>
+</html>
