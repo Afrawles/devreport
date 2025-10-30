@@ -6,15 +6,45 @@
 
 ## Features
 
-- **One-command reports**: Fetch from ClickUp → Generate HTML/PDF + JSON export
-- **Smart stats**: Auto-calculates totals, completion rates, breakdowns by status/source/type
-- **Cross-platform**: Pre-built binaries for macOS, Linux, Windows (AMD64/ARM64)
+- **One-command reports**: Fetch from ClickUp → Generate HTML/PDF + JSON export  
+- **Smart stats**: Auto-calculates totals, completion rates, breakdowns by status/source/type  
+- **Cross-platform**: Pre-built binaries for macOS, Linux, Windows (AMD64/ARM64)  
+- **Optional AI Rephrasing**: Integrates with [Ollama](https://ollama.com/) for task rewording  
 
 ## Prerequisites
 
-- **ClickUp Account**: Access to tasks via API
-- **Terminal**: Bash/Zsh/PowerShell
-- **Optional**: Browser to view HTML reports
+- **ClickUp Account**: Access to tasks via API  
+- **Terminal**: sh/Zsh/PowerShell  
+- **Optional**: Browser to view HTML reports  
+- **Optional**: [Ollama](https://ollama.com/) running locally (port 11434) for AI rephrasing  
+
+## Installing Ollama and Gemma3
+
+1. Install Ollama:
+
+   ```sh
+   curl -fsSL https://ollama.com/install.sh | sh
+   ```
+
+2. Start Ollama:
+
+   ```sh
+   ollama serve
+   ```
+
+3. Pull the Gemma3 model:
+
+   ```sh
+   ollama pull gemma3
+   ```
+
+4. Verify installation:
+
+   ```sh
+   curl http://localhost:11434/api/tags
+   ```
+
+---
 
 ## Installation
 
@@ -29,77 +59,117 @@
    - Windows: `devreport_windows_amd64.zip`
 
 3. Extract and install (macOS/Linux):
-   ```bash
-   # Extract the archive
+
+   ```sh
    tar -xzf devreport_darwin_amd64.tar.gz
-   
-   # Make it executable
    chmod +x devreport
-   
-   # Move to PATH
    sudo mv devreport /usr/local/bin/
    ```
-   
-   For Windows, extract the ZIP file and add the folder to your PATH.
 
 4. Verify installation:
-   ```bash
+
+   ```sh
    devreport --help
    ```
 
 ### Option 2: Build from Source
 
-```bash
+```sh
 git clone https://github.com/Afrawles/devreport.git
 cd devreport
 go build -o devreport ./cmd/devreport
 ./devreport --help
 ```
 
+---
+
 ## Getting Your ClickUp API Token
 
-1. Log in to your [ClickUp account](https://app.clickup.com)
-2. Click your **profile picture** in the bottom left corner
-3. Select **Settings**
-4. Navigate to **Apps** in the left sidebar
-5. Scroll down to **API Token** section
-6. Click **Generate** (or **Regenerate** if you already have one)
-7. **Copy the token** - you'll need this for the `--clickup-token` flag
+1. Log in to [ClickUp](https://app.clickup.com)
+2. Click your profile picture → **Settings**
+3. Go to **Apps** → **API Token**
+4. Click **Generate** and copy your token
+5. Use it with the `--clickup-token` flag
+
+---
 
 ## Finding Your ClickUp List IDs
 
-1. In the **Sidebar**, hover over the **List** you want to pull tasks from
-2. Click the **ellipsis (...)** menu
-3. Select **Copy link**
-4. The copied URL will look like:
-    
-    ```
-    https://app.clickup.com/12345678/v/li/987654321
-    ```
-    
-5. The number after `/li/` is your **List ID** (e.g., `987654321`)
-6. For multiple lists, use comma-separated IDs: `987654321,123456789`
+1. In the ClickUp sidebar, hover over a List  
+2. Click the **ellipsis (...)** → **Copy link**  
+3. Example:
+
+   ```sh
+   https://app.clickup.com/12345678/v/li/987654321
+   ```
+
+4. The number after `/li/` is your **List ID** (`987654321`)  
+5. Use commas to separate multiple lists:
+
+   ```sh
+   987654321,123456789
+   ```
+
+---
 
 ## Finding Your ClickUp Assignee IDs
 
-   ```bash
-   curl -H "Authorization: YOUR_API_TOKEN" \
-     "https://api.clickup.com/api/v2/team"
-   ```
+```sh
+curl -H "Authorization: YOUR_API_TOKEN" \
+  "https://api.clickup.com/api/v2/team"
+```
+
+---
 
 ## Usage
 
-### Basic Command
+When working with multiple ClickUp lists, DevReport maps text by list order.
 
-```bash
-./devreport \
-  --user "Afrawles" \
-  --start 2025-10-01 \
-  --end 2025-10-30 \
-  --clickup-token "clickup_api_token_here" \
-  --clickup-listid "12345678,87654321" \
-  --clickup-assignees "123456789,987654321"
-  --author "Uzumaki Saitama"
+- Use commas (`,`) to separate **different lists**
+- Use pipes (`|`) within each list group to separate **sentences belonging to that list**
+
+### Example Layout
+
+```sh
+--clickup-listid "11111111,33333333" \
+--challenges "Delayed client feedback|Unclear UI specifications|Integration issues with payment service, Server maintenance downtime|Third-party API instability|Deployment delays" \
+--support-required "Product team review|QA support for test coverage|DevOps for CI/CD automation, Management alignment|Database admin support|Load testing assistance" \
+--support-from "Product Management|QA Department|DevOps Team, IT Infrastructure|Backend Team|Project Management Office" \
+--follow-up "Conduct sprint retrospective|Optimize frontend performance|Write integration tests, Refactor legacy modules|Enhance documentation|Evaluate monitoring tools"
 ```
 
-Open `reports/report_Afrawles_20251030.html` in your broswer to view report:
+Explanation:
+
+- Everything before the first comma (`,`) belongs to **List 11111111**  
+- Everything after the comma belongs to **List 33333333**  
+- Within each group, `|` separates sentences for that list  
+
+---
+
+### Basic Command
+
+```sh
+./devreport \
+  --user "Uzumaki.Gon" \
+  --start "2025-10-01" \
+  --end "2025-10-31" \
+  --author "Killua Uzumaki" \
+  --period "Month of October" \
+  --year 2025 \
+  --category "Improvements, New Features, and Bug Fixes" \
+  --clickup-token "your_clickup_token_here" \
+  --clickup-assignees 1234536,1728383 \
+  --clickup-listid "11111111,33333333" \
+  --challenges "Delayed client feedback|Unclear UI specifications|Integration issues with payment service, Server maintenance downtime|Third-party API instability|Deployment delays" \
+  --support-required "Product team review|QA support for test coverage|DevOps for CI/CD automation, Management alignment|Database admin support|Load testing assistance" \
+  --support-from "Product Management|QA Department|DevOps Team, IT Infrastructure|Backend Team|Project Management Office" \
+  --follow-up "Conduct sprint retrospective|Optimize frontend performance|Write integration tests, Refactor legacy modules|Enhance documentation|Evaluate monitoring tools"
+```
+
+After execution, open the generated report:
+
+```sh
+reports/report_Uzumaki.Gon_20251030.html
+```
+
+This file contains the task summary, categorized sections, and AI-rephrased content (if Ollama is available).
