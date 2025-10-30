@@ -10,6 +10,7 @@ type Config struct {
     GitHub  GitHubConfig
     ClickUp ClickUpConfig
     Output  OutputConfig
+	Author string
 }
 
 type GitHubConfig struct {

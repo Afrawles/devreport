@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
-
 )
 
 const baseURL = "https://api.clickup.com/api/v2"
@@ -15,10 +15,10 @@ type Client struct {
     apiKey      string
     assigneeIDs []string
     httpClient  *http.Client
-	listID string
+	listID []string
 }
 
-func NewClient(apiKey, listID string, assigneeIDs []string) *Client {
+func NewClient(apiKey string, listID, assigneeIDs []string) *Client {
     return &Client{
         apiKey:      apiKey,
         assigneeIDs: assigneeIDs,
@@ -52,8 +52,8 @@ type TasksResponse struct {
     Tasks []ClickUpTask `json:"tasks"`
 }
 
-// FetchTasks fetches tasks for assigned users within date range
-func (c *Client) FetchTasks(start, end time.Time) ([]ClickUpTask, error) {
+// FetchTasks fetches tasks for assigned users, in single List within date range
+func (c *Client) FetchTasksForList(listID string, start, end time.Time) ([]ClickUpTask, error) {
 	var assigneeParams string
 	for _, id := range c.assigneeIDs {
 		assigneeParams += fmt.Sprintf("&assignees=%s", id)
@@ -63,9 +63,7 @@ func (c *Client) FetchTasks(start, end time.Time) ([]ClickUpTask, error) {
 	endMs := end.UnixMilli()
 
 	url := fmt.Sprintf("%s/list/%s/task?order_by=created&subtasks=true&include_closed=true&include_timl=true%s&date_created_gt=%d&date_created_lt=%d",
-		baseURL, c.listID, assigneeParams, startMs, endMs)
-
-	fmt.Println(url)
+		baseURL, listID, assigneeParams, startMs, endMs)
 
     req, err := http.NewRequest("GET", url, nil)
     if err != nil {
@@ -92,6 +90,59 @@ func (c *Client) FetchTasks(start, end time.Time) ([]ClickUpTask, error) {
     }
 
     return result.Tasks, nil
+}
+
+func (c *Client) FetchTasks(listIDs []string, start, end time.Time, maxWorkers int) ([]ClickUpTask, error) {
+	type result struct {
+		tasks []ClickUpTask
+		err   error
+	}
+
+	resultCh := make(chan result, len(listIDs))
+	taskCh := make(chan string, len(listIDs))
+
+	var wg sync.WaitGroup
+	for i := 0; i < maxWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for listID := range taskCh {
+				tasks, err := c.FetchTasksForList(listID, start, end)
+				if err != nil {
+					resultCh <- result{err: fmt.Errorf("list %s: %w", listID, err)}
+				} else {
+					resultCh <- result{tasks: tasks}
+				}
+			}
+		}()
+	}
+
+	for _, id := range listIDs {
+		taskCh <- id
+	}
+	close(taskCh)
+
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	var allTasks []ClickUpTask
+	var allErrs []error
+
+	for res := range resultCh {
+		if res.err != nil {
+			allErrs = append(allErrs, res.err)
+		} else {
+			allTasks = append(allTasks, res.tasks...)
+		}
+	}
+
+	if len(allErrs) > 0 {
+		return allTasks, fmt.Errorf("some requests failed: %v", allErrs)
+	}
+
+	return allTasks, nil
 }
 
 func (c *Client) HealthCheck() error {

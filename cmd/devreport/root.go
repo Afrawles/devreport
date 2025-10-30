@@ -19,7 +19,8 @@ var (
     output    string
 	clickUpToken    string
 	clickUpAssignees string
-	clickuoListID string
+	clickuoListIDs string
+	author string
 )
 
 var rootCmd = &cobra.Command{
@@ -47,7 +48,9 @@ func init() {
 	// clickup 
 	rootCmd.Flags().StringVar(&clickUpToken, "clickup-token", "", "ClickUp API token")
 	rootCmd.Flags().StringVar(&clickUpAssignees, "clickup-assignees", "", "Comma-separated ClickUp assignee IDs")
-	rootCmd.Flags().StringVar(&clickuoListID, "clickup-listid", "", "CLickup List ID")
+	rootCmd.Flags().StringVar(&clickuoListIDs, "clickup-listid", "", "CLickup List IDs")
+
+	rootCmd.Flags().StringVar(&author, "author", "", "report author")
 }
 
 
@@ -91,9 +94,9 @@ func generateReport(cmd *cobra.Command, args []string) {
 		token = os.Getenv("CLICKUP_API_KEY")
 	}
 
-	listID := clickuoListID
-	if listID == "" {
-		listID = os.Getenv("CLICKUP_LISTID")
+	listIDstr := clickuoListIDs
+	if listIDstr == "" {
+		listIDstr = os.Getenv("CLICKUP_LISTIDS")
 	}
 
 	assigneesStr := clickUpAssignees
@@ -101,12 +104,16 @@ func generateReport(cmd *cobra.Command, args []string) {
 		assigneesStr = os.Getenv("CLICKUP_ASSIGNEE_IDS")
 	}
 
-	if token != "" && assigneesStr != ""  && listID != ""{
+	if token != "" && assigneesStr != ""  && listIDstr != ""{
 		assigneeIDs := strings.Split(assigneesStr, ",")
 		for i := range assigneeIDs {
 			assigneeIDs[i] = strings.TrimSpace(assigneeIDs[i])
 		}
-		sources = append(sources, clickup.NewClickUpSource(token, listID, assigneeIDs))
+		listIDs := strings.Split(listIDstr, ",")
+		for i := range listIDs {
+			listIDs[i] = strings.TrimSpace(listIDs[i])
+		}
+		sources = append(sources, clickup.NewClickUpSource(token, listIDs, assigneeIDs))
 	} else if token != "" {
 		fmt.Println("ClickUp token provided but assignee IDs missing")
 	}
@@ -144,7 +151,7 @@ func generateReport(cmd *cobra.Command, args []string) {
 
     //html
     htmlFile := fmt.Sprintf("report_%s_%s.html", username, time.Now().Format("20060102"))
-    if err := exporter.ExportHTML(tasks, stats, htmlFile); err != nil {
+    if err := exporter.ExportHTML(tasks, stats, htmlFile, author); err != nil {
         fmt.Printf("Failed to export html: %v\n", err)
     } else {
         fmt.Printf("html report saved: %s/%s\n", output, htmlFile)

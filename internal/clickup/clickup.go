@@ -11,7 +11,7 @@ type ClickUpSource struct {
     Client *Client
 }
 
-func NewClickUpSource(apiKey, listID string, assigneeIDs []string) *ClickUpSource {
+func NewClickUpSource(apiKey string, listID, assigneeIDs []string) *ClickUpSource {
     return &ClickUpSource{
         Client: NewClient(apiKey, listID, assigneeIDs),
     }
@@ -29,7 +29,7 @@ func (c *ClickUpSource) HealthCheck() error {
 }
 
 func (c *ClickUpSource) FetchTasks(user string, start, end time.Time) ([]report.Task, error) {
-    clickupTasks, err := c.Client.FetchTasks(start, end)
+    clickupTasks, err := c.Client.FetchTasks(c.Client.listID, start, end, len(c.Client.listID))
     if err != nil {
         return nil, err
     }
@@ -54,8 +54,6 @@ func (c *ClickUpSource) FetchTasks(user string, start, end time.Time) ([]report.
         for _, a := range t.Assignees {
             assignees = append(assignees, a.Username)
         }
-
-		// TODO: add other tasks
 
         task := report.Task{
             ID:          t.ID,

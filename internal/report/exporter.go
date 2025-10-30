@@ -32,7 +32,7 @@ func (e *Exporter) ExportJSON(tasks []Task, filename string) error {
     return os.WriteFile(fmt.Sprintf("%s/%s", e.OutputDir, filename), data, 0644)
 }
 
-func (e *Exporter) ExportHTML(tasks []Task, stats map[string]any, filename string) error {
+func (e *Exporter) ExportHTML(tasks []Task, stats map[string]any, filename,  auhtor string) error {
 	funcMap := template.FuncMap{
 		"title": cases.Title(language.English).String,
 		"sub":   func(a, b int) int { return a - b },
@@ -56,7 +56,7 @@ func (e *Exporter) ExportHTML(tasks []Task, stats map[string]any, filename strin
         "Stats":       stats,
         "Year":        2025,
         "Department":  "Information Systems",
-        "SubmittedBy": "Odeke Moses",
+        "SubmittedBy": auhtor,
         "Period":      "Q2",
     }
 
@@ -66,6 +66,6 @@ func (e *Exporter) ExportHTML(tasks []Task, stats map[string]any, filename strin
         return fmt.Errorf("failed to render HTML: %w", err)
     }
 
-    fmt.Printf("HTML/PDF report saved: %s\n", outputPath)
+    fmt.Printf("HTML report saved: %s\n", outputPath)
     return nil
 }
