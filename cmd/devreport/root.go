@@ -13,14 +13,21 @@ import (
 )
 
 var (
-    startDate string
-    endDate   string
-    username  string
-    output    string
+	startDate   string
+	endDate     string
+	username    string
+	output      string
 	clickUpToken    string
 	clickUpAssignees string
 	clickuoListIDs string
 	author string
+	category string
+	challenges      string
+	supportRequired string
+	supportFrom     string
+	followUp        string
+	period          string
+	year            int
 )
 
 var rootCmd = &cobra.Command{
@@ -49,8 +56,16 @@ func init() {
 	rootCmd.Flags().StringVar(&clickUpToken, "clickup-token", "", "ClickUp API token")
 	rootCmd.Flags().StringVar(&clickUpAssignees, "clickup-assignees", "", "Comma-separated ClickUp assignee IDs")
 	rootCmd.Flags().StringVar(&clickuoListIDs, "clickup-listid", "", "CLickup List IDs")
+	rootCmd.Flags().StringVar(&category, "category", "Improvements/Issues/New Development/Urgent Support/Fixes", "Category suffix for list names")
 
 	rootCmd.Flags().StringVar(&author, "author", "", "report author")
+
+	rootCmd.Flags().StringVar(&challenges, "challenges", "", "Comma-separated challenges encountered (one per list)")
+	rootCmd.Flags().StringVar(&supportRequired, "support-required", "", "Comma-separated support required (one per list)")
+	rootCmd.Flags().StringVar(&supportFrom, "support-from", "", "Comma-separated support from (one per list)")
+	rootCmd.Flags().StringVar(&followUp, "follow-up", "", "Comma-separated follow up activities (one per list)")
+	rootCmd.Flags().StringVar(&period, "period", "Q2", "Reporting period (e.g., Q1, Q2, January, etc.)")
+	rootCmd.Flags().IntVar(&year, "year", time.Now().Year(), "Report year")
 }
 
 
@@ -113,14 +128,14 @@ func generateReport(cmd *cobra.Command, args []string) {
 		for i := range listIDs {
 			listIDs[i] = strings.TrimSpace(listIDs[i])
 		}
-		sources = append(sources, clickup.NewClickUpSource(token, listIDs, assigneeIDs))
+		sources = append(sources, clickup.NewClickUpSource(token, listIDs, assigneeIDs, category))
 	} else if token != "" {
 		fmt.Println("ClickUp token provided but assignee IDs missing")
 	}
 
 	if len(sources) == 0 {
 		fmt.Println("No data sources configured. Set tokens via flags or environment variables.")
-		fmt.Println("Required: CLICKUP_API_KEY + CLICKUP_ASSIGNEE_IDS")
+		fmt.Println("Required: CLICKUP_API_KEY + CLICKUP_ASSIGNEE_IDS + CLICKUP_LISTIDS")
 		return
 	}
 
@@ -135,6 +150,26 @@ func generateReport(cmd *cobra.Command, args []string) {
         fmt.Println("No activities found for this period")
         return
     }
+
+	challengesList := parseCommaList(challenges)
+	supportRequiredList := parseCommaList(supportRequired)
+	supportFromList := parseCommaList(supportFrom)
+	followUpList := parseCommaList(followUp)
+
+	for i := range tasks {
+		if i < len(challengesList) {
+			tasks[i].Challenges = challengesList[i]
+		}
+		if i < len(supportRequiredList) {
+			tasks[i].SupportRequired = supportRequiredList[i]
+		}
+		if i < len(supportFromList) {
+			tasks[i].SupportFrom = supportFromList[i]
+		}
+		if i < len(followUpList) {
+			tasks[i].FollowUp = followUpList[i]
+		}
+	}
 
     os.MkdirAll(output, 0755)
 
@@ -151,11 +186,15 @@ func generateReport(cmd *cobra.Command, args []string) {
 
     //html
     htmlFile := fmt.Sprintf("report_%s_%s.html", username, time.Now().Format("20060102"))
-    if err := exporter.ExportHTML(tasks, stats, htmlFile, author); err != nil {
-        fmt.Printf("Failed to export html: %v\n", err)
-    } else {
-        fmt.Printf("html report saved: %s/%s\n", output, htmlFile)
-    }
+	reportConfig := map[string]any{
+		"Year":   year,
+		"Period": period,
+	}
+	if err := exporter.ExportHTML(tasks, stats, htmlFile, author, reportConfig); err != nil {
+		fmt.Printf("Failed to export html: %v\n", err)
+	} else {
+		fmt.Printf("html report saved: %s/%s\n", output, htmlFile)
+	}
 
     fmt.Printf("\nSummary:\n")
     fmt.Printf("   Total activities: %d\n", stats["total"])

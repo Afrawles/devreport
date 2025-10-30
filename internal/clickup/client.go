@@ -37,6 +37,7 @@ type ClickUpTask struct {
     DateUpdated string      `json:"date_updated"`
     DateClosed  *string     `json:"date_closed"`
     Assignees   []Assignee  `json:"assignees"`
+	List        ListInfo      `json:"list"`
 }
 
 type ClickUpStatus struct {
@@ -48,11 +49,64 @@ type Assignee struct {
     Username string `json:"username"`
 }
 
+type ListInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type ListDetails struct {
+	ID     string      `json:"id"`
+	Name   string      `json:"name"`
+	Folder FolderInfo  `json:"folder"`
+	Space  SpaceInfo   `json:"space"`
+}
+
+type FolderInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type SpaceInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 type TasksResponse struct {
     Tasks []ClickUpTask `json:"tasks"`
 }
 
-// FetchTasks fetches tasks for assigned users, in single List within date range
+// FetchListDetails fetches details for a specific list
+func (c *Client) FetchListDetails(listID string) (*ListDetails, error) {
+	url := fmt.Sprintf("%s/list/%s", baseURL, listID)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", c.apiKey)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var result ListDetails
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// FetchTasksForList fetches tasks for assigned users, in single List within date range
 func (c *Client) FetchTasksForList(listID string, start, end time.Time) ([]ClickUpTask, error) {
 	var assigneeParams string
 	for _, id := range c.assigneeIDs {
@@ -62,7 +116,7 @@ func (c *Client) FetchTasksForList(listID string, start, end time.Time) ([]Click
 	startMs := start.UnixMilli()
 	endMs := end.UnixMilli()
 
-	url := fmt.Sprintf("%s/list/%s/task?order_by=created&subtasks=true&include_closed=true&include_timl=true%s&date_created_gt=%d&date_created_lt=%d",
+	url := fmt.Sprintf("%s/list/%s/task?order_by=created&include_closed=true&include_timl=true%s&date_created_gt=%d&date_created_lt=%d",
 		baseURL, listID, assigneeParams, startMs, endMs)
 
     req, err := http.NewRequest("GET", url, nil)

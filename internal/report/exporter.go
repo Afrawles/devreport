@@ -32,7 +32,7 @@ func (e *Exporter) ExportJSON(tasks []Task, filename string) error {
     return os.WriteFile(fmt.Sprintf("%s/%s", e.OutputDir, filename), data, 0644)
 }
 
-func (e *Exporter) ExportHTML(tasks []Task, stats map[string]any, filename,  auhtor string) error {
+func (e *Exporter) ExportHTML(tasks []Task, stats map[string]any, filename,  author string, config map[string]any) error {
 	funcMap := template.FuncMap{
 		"title": cases.Title(language.English).String,
 		"sub":   func(a, b int) int { return a - b },
@@ -42,7 +42,6 @@ func (e *Exporter) ExportHTML(tasks []Task, stats map[string]any, filename,  auh
         return fmt.Errorf("failed to parse HTML template: %w", err)
     }
 
-
     outputPath := fmt.Sprintf("%s/%s", e.OutputDir, filename)
     f, err := os.Create(outputPath)
     if err != nil {
@@ -50,17 +49,27 @@ func (e *Exporter) ExportHTML(tasks []Task, stats map[string]any, filename,  auh
     }
     defer f.Close()
 
-    data := map[string]any{
-        "Date":        time.Now().Format("2006-01-02 15:04:05"),
-        "Tasks":       tasks,
-        "Stats":       stats,
-        "Year":        2025,
-        "Department":  "Information Systems",
-        "SubmittedBy": auhtor,
-        "Period":      "Q2",
-    }
+	year := 2025
+	period := "October"
+	
+	if config != nil {
+		if y, ok := config["Year"].(int); ok {
+			year = y
+		}
+		if p, ok := config["Period"].(string); ok {
+			period = p
+		}
+	}
 
-	fmt.Println(stats)
+	data := map[string]any{
+		"Date":        time.Now().Format("2006-01-02 15:04:05"),
+		"Tasks":       tasks,
+		"Stats":       stats,
+		"Year":        year,
+		"Department":  "Information Systems",
+		"SubmittedBy": author,
+		"Period":      period,
+	}
 
     if err := tmpl.Execute(f, data); err != nil {
         return fmt.Errorf("failed to render HTML: %w", err)
