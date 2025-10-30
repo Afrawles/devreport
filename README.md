@@ -21,13 +21,28 @@
 ### Option 1: Download Pre-built Binary (Recommended)
 
 1. Go to the [Releases page](https://github.com/Afrawles/devreport/releases)
-2. Download the binary for your platform (e.g., `devreport_darwin_amd64` for macOS Intel)
-3. Make it executable:
+2. Download the archive for your platform:
+   - macOS Intel: `devreport_darwin_amd64.tar.gz`
+   - macOS Apple Silicon: `devreport_darwin_arm64.tar.gz`
+   - Linux AMD64: `devreport_linux_amd64.tar.gz`
+   - Linux ARM64: `devreport_linux_arm64.tar.gz`
+   - Windows: `devreport_windows_amd64.zip`
+
+3. Extract and install (macOS/Linux):
    ```bash
-   chmod +x devreport_darwin_amd64
-   mv devreport_darwin_amd64 ~/bin/devreport
+   # Extract the archive
+   tar -xzf devreport_darwin_amd64.tar.gz
+   
+   # Make it executable
+   chmod +x devreport
+   
+   # Move to PATH
+   sudo mv devreport /usr/local/bin/
    ```
-4. Verify:
+   
+   For Windows, extract the ZIP file and add the folder to your PATH.
+
+4. Verify installation:
    ```bash
    devreport --help
    ```
