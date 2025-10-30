@@ -48,6 +48,12 @@
     .header-label {
       width: 10%;
     }
+    .achievements-cell {
+      white-space: pre-line;
+    }
+    .multi-line-cell {
+      white-space: pre-line;
+    }
     .summary {
       margin-top: 20px;
       font-size: 14px;
@@ -92,15 +98,15 @@
       {{range .Tasks}}
       <tr>
         <td><strong>{{.Title}}</strong></td>
-        <td>{{if .Achievements}}{{.Achievements}}{{else}}&nbsp;{{end}}</td>
-        <td>{{if .Challenges}}{{.Challenges}}{{else}}&nbsp;{{end}}</td>
-        <td>{{if .SupportRequired}}{{.SupportRequired}}{{else}}&nbsp;{{end}}</td>
-        <td>{{if .SupportFrom}}{{.SupportFrom}}{{else}}&nbsp;{{end}}</td>
-        <td>{{if .FollowUp}}{{.FollowUp}}{{else}}&nbsp;{{end}}</td>
+        <td class="achievements-cell">{{if .Achievements}}{{.Achievements}}{{else}}&nbsp;{{end}}</td>
+        <td class="multi-line-cell">{{if .Challenges}}{{.Challenges}}{{else}}&nbsp;{{end}}</td>
+        <td class="multi-line-cell">{{if .SupportRequired}}{{.SupportRequired}}{{else}}&nbsp;{{end}}</td>
+        <td class="multi-line-cell">{{if .SupportFrom}}{{.SupportFrom}}{{else}}&nbsp;{{end}}</td>
+        <td class="multi-line-cell">{{if .FollowUp}}{{.FollowUp}}{{else}}&nbsp;{{end}}</td>
         <td>{{if .CompletedAt}}{{.CompletedAt.Format "2006-01-02"}}{{else}}&nbsp;{{end}}</td>
         <td>
-          {{if .AttachmentURL}}
-            <a href="{{.AttachmentURL}}" target="_blank">Open Attachment</a>
+          {{if .URL}}
+            <a href="{{.URL}}" target="_blank">View in ClickUp</a>
           {{else}}
             &nbsp;
           {{end}}
@@ -108,24 +114,6 @@
       </tr>
       {{end}}
     </table>
-
-    <div class="summary">
-      <h3>Activities Summary</h3>
-      <div class="summary-item"><strong>Total Activities:</strong> {{index .Stats "total"}}</div>
-      <div class="summary-item"><strong>Completed:</strong> {{index .Stats "completed"}}</div>
-      <div class="summary-item"><strong>Pending:</strong> {{sub (index .Stats "total") (index .Stats "completed")}}</div>
-      
-      <h3>By Source</h3>
-      {{range $src, $cnt := index .Stats "by_source"}}
-      <div class="summary-item"><strong>{{title $src}}:</strong> {{$cnt}}</div>
-      {{end}}
-      
-      <h3>By Status</h3>
-      {{range $st, $cnt := index .Stats "by_status"}}
-      <div class="summary-item"><strong>{{title $st}}:</strong> {{$cnt}}</div>
-      {{end}}
-    </div>
   </div>
 </body>
 </html>
-
