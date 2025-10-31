@@ -18,7 +18,7 @@
 - **Optional**: Browser to view HTML reports  
 - **Optional**: [Ollama](https://ollama.com/) running locally (port 11434) for AI rephrasing  
 
-## Installing Ollama and Gemma3
+## Installing Ollama and Gemma3 on linux
 
 1. Install Ollama:
 
