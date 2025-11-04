@@ -172,4 +172,4 @@ After execution, open the generated report:
 reports/report_Uzumaki.Gon_20251030.html
 ```
 
-This file contains the task summary, categorized sections, and AI-rephrased content (if Ollama is available).
+This file (report export) contains the task summary, categorized sections, and AI-rephrased content (if Ollama is available).
