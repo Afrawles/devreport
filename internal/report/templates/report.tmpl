@@ -12,7 +12,7 @@
       color: #000;
     }
     .container {
-      max-width: 1200px;
+      max-width: 1600px;
       margin: 0 auto;
     }
     h1 {
@@ -28,12 +28,14 @@
       width: 100%;
       border-collapse: collapse;
       margin-bottom: 30px;
+      table-layout: fixed;
     }
     th, td {
       border: 1px solid #000;
       padding: 10px;
       text-align: left;
       vertical-align: top;
+      word-wrap: break-word;
     }
     th {
       background: #FFC000;
@@ -47,6 +49,39 @@
     }
     .header-label {
       width: 10%;
+    }
+    /* Column width assignments */
+    table tr th:nth-child(1),
+    table tr td:nth-child(1) {
+      width: 12%; /* KEY ACTIVITIES */
+    }
+    table tr th:nth-child(2),
+    table tr td:nth-child(2) {
+      width: 20%; /* ACHIEVEMENTS */
+    }
+    table tr th:nth-child(3),
+    table tr td:nth-child(3) {
+      width: 15%; /* CHALLENGES */
+    }
+    table tr th:nth-child(4),
+    table tr td:nth-child(4) {
+      width: 13%; /* SUPPORT REQUIRED */
+    }
+    table tr th:nth-child(5),
+    table tr td:nth-child(5) {
+      width: 12%; /* SUPPORT FROM */
+    }
+    table tr th:nth-child(6),
+    table tr td:nth-child(6) {
+      width: 13%; /* FOLLOW UP */
+    }
+    table tr th:nth-child(7),
+    table tr td:nth-child(7) {
+      width: 8%; /* COMPLETION DATE */
+    }
+    table tr th:nth-child(8),
+    table tr td:nth-child(8) {
+      width: 7%; /* LOCATION */
     }
     .achievements-cell {
       white-space: pre-line;
@@ -68,12 +103,20 @@
     a:hover {
       text-decoration: underline;
     }
+    
+    @media print {
+      body {
+        margin: 0;
+      }
+      .container {
+        max-width: 100%;
+      }
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>INDIVIDUAL REPORT {{.Year}}</h1>
-
     <table>
       <tr class="header-row">
         <td class="header-label">Dept:</td>
