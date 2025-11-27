@@ -16,42 +16,42 @@ import (
 var templateFS embed.FS
 
 type Exporter struct {
-    OutputDir string
+	OutputDir string
 }
 
 func NewExporter(outputDir string) *Exporter {
-    return &Exporter{OutputDir: outputDir}
+	return &Exporter{OutputDir: outputDir}
 }
 
 func (e *Exporter) ExportJSON(tasks []Task, filename string) error {
-    data, err := json.MarshalIndent(tasks, "", "\t")
-    if err != nil {
-        return err
-    }
-    
-    return os.WriteFile(fmt.Sprintf("%s/%s", e.OutputDir, filename), data, 0644)
+	data, err := json.MarshalIndent(tasks, "", "\t")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(fmt.Sprintf("%s/%s", e.OutputDir, filename), data, 0644)
 }
 
-func (e *Exporter) ExportHTML(tasks []Task, stats map[string]any, filename,  author string, config map[string]any) error {
+func (e *Exporter) ExportHTML(tasks []Task, stats map[string]any, filename, author string, config map[string]any) error {
 	funcMap := template.FuncMap{
 		"title": cases.Title(language.English).String,
 		"sub":   func(a, b int) int { return a - b },
 	}
-    tmpl, err := template.New("report.tmpl").Funcs(funcMap).ParseFS(templateFS, "templates/report.tmpl")
-    if err != nil {
-        return fmt.Errorf("failed to parse HTML template: %w", err)
-    }
+	tmpl, err := template.New("report.tmpl").Funcs(funcMap).ParseFS(templateFS, "templates/report.tmpl")
+	if err != nil {
+		return fmt.Errorf("failed to parse HTML template: %w", err)
+	}
 
-    outputPath := fmt.Sprintf("%s/%s", e.OutputDir, filename)
-    f, err := os.Create(outputPath)
-    if err != nil {
-        return fmt.Errorf("failed to create HTML file: %w", err)
-    }
-    defer f.Close()
+	outputPath := fmt.Sprintf("%s/%s", e.OutputDir, filename)
+	f, err := os.Create(outputPath)
+	if err != nil {
+		return fmt.Errorf("failed to create HTML file: %w", err)
+	}
+	defer f.Close()
 
 	year := 2025
 	period := "October"
-	
+
 	if config != nil {
 		if y, ok := config["Year"].(int); ok {
 			year = y
@@ -71,10 +71,10 @@ func (e *Exporter) ExportHTML(tasks []Task, stats map[string]any, filename,  aut
 		"Period":      period,
 	}
 
-    if err := tmpl.Execute(f, data); err != nil {
-        return fmt.Errorf("failed to render HTML: %w", err)
-    }
+	if err := tmpl.Execute(f, data); err != nil {
+		return fmt.Errorf("failed to render HTML: %w", err)
+	}
 
-    fmt.Printf("HTML report saved: %s\n", outputPath)
-    return nil
+	fmt.Printf("HTML report saved: %s\n", outputPath)
+	return nil
 }
