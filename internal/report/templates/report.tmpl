@@ -12,7 +12,7 @@
       color: #000;
     }
     .container {
-      max-width: 1600px;
+      max-width: 1200px;
       margin: 0 auto;
     }
     h1 {
@@ -24,31 +24,16 @@
       font-size: 24px;
       font-weight: bold;
     }
-    .project-section {
-      margin-bottom: 40px;
-      page-break-inside: avoid;
-    }
-    .project-header {
-      background: #4472C4;
-      color: white;
-      padding: 12px 15px;
-      margin: 20px 0 10px 0;
-      font-size: 18px;
-      font-weight: bold;
-      border-radius: 4px;
-    }
     table {
       width: 100%;
       border-collapse: collapse;
       margin-bottom: 30px;
-      table-layout: fixed;
     }
     th, td {
       border: 1px solid #000;
       padding: 10px;
       text-align: left;
       vertical-align: top;
-      word-wrap: break-word;
     }
     th {
       background: #FFC000;
@@ -62,39 +47,6 @@
     }
     .header-label {
       width: 10%;
-    }
-    /* Column width assignments */
-    table tr th:nth-child(1),
-    table tr td:nth-child(1) {
-      width: 12%; /* KEY ACTIVITIES */
-    }
-    table tr th:nth-child(2),
-    table tr td:nth-child(2) {
-      width: 20%; /* ACHIEVEMENTS */
-    }
-    table tr th:nth-child(3),
-    table tr td:nth-child(3) {
-      width: 15%; /* CHALLENGES */
-    }
-    table tr th:nth-child(4),
-    table tr td:nth-child(4) {
-      width: 13%; /* SUPPORT REQUIRED */
-    }
-    table tr th:nth-child(5),
-    table tr td:nth-child(5) {
-      width: 12%; /* SUPPORT FROM */
-    }
-    table tr th:nth-child(6),
-    table tr td:nth-child(6) {
-      width: 13%; /* FOLLOW UP */
-    }
-    table tr th:nth-child(7),
-    table tr td:nth-child(7) {
-      width: 8%; /* COMPLETION DATE */
-    }
-    table tr th:nth-child(8),
-    table tr td:nth-child(8) {
-      width: 7%; /* LOCATION */
     }
     .achievements-cell {
       white-space: pre-line;
@@ -116,23 +68,12 @@
     a:hover {
       text-decoration: underline;
     }
-    
-    @media print {
-      body {
-        margin: 0;
-      }
-      .container {
-        max-width: 100%;
-      }
-      .project-section {
-        page-break-inside: avoid;
-      }
-    }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>INDIVIDUAL REPORT {{.Year}}</h1>
+
     <table>
       <tr class="header-row">
         <td class="header-label">Dept:</td>
@@ -144,43 +85,35 @@
         <td class="header-label">PERIOD</td>
         <td colspan="7">{{.Period}}</td>
       </tr>
+      <tr>
+        <th>KEY ACTIVITIES / TASKS</th>
+        <th>ACHIEVEMENTS</th>
+        <th>CHALLENGES ENCOUNTERED</th>
+        <th>SUPPORT REQUIRED</th>
+        <th>SUPPORT FROM (WHOM/ WHICH DEPT)</th>
+        <th>FOLLOW UP ACTIVITIES</th>
+        <th>COMPLETION DATE</th>
+        <th>LOCATION OF EVIDENCE / ATTACHMENT</th>
+      </tr>
+      {{range .Tasks}}
+      <tr>
+        <td><strong>{{.Title}}</strong></td>
+        <td class="achievements-cell">{{if .Achievements}}{{.Achievements}}{{else}}&nbsp;{{end}}</td>
+        <td class="multi-line-cell">{{if .Challenges}}{{.Challenges}}{{else}}&nbsp;{{end}}</td>
+        <td class="multi-line-cell">{{if .SupportRequired}}{{.SupportRequired}}{{else}}&nbsp;{{end}}</td>
+        <td class="multi-line-cell">{{if .SupportFrom}}{{.SupportFrom}}{{else}}&nbsp;{{end}}</td>
+        <td class="multi-line-cell">{{if .FollowUp}}{{.FollowUp}}{{else}}&nbsp;{{end}}</td>
+        <td>{{if .CompletedAt}}{{.CompletedAt.Format "2006-01-02"}}{{else}}&nbsp;{{end}}</td>
+        <td>
+          {{if .URL}}
+            <a href="{{.URL}}" target="_blank">View in ClickUp</a>
+          {{else}}
+            &nbsp;
+          {{end}}
+        </td>
+      </tr>
+      {{end}}
     </table>
-
-    {{range .GroupedTasks}}
-    <div class="project-section">
-      <div class="project-header">Project: {{.ProjectName}}</div>
-      <table>
-        <tr>
-          <th>KEY ACTIVITIES / TASKS</th>
-          <th>ACHIEVEMENTS</th>
-          <th>CHALLENGES ENCOUNTERED</th>
-          <th>SUPPORT REQUIRED</th>
-          <th>SUPPORT FROM (WHOM/ WHICH DEPT)</th>
-          <th>FOLLOW UP ACTIVITIES</th>
-          <th>COMPLETION DATE</th>
-          <th>LOCATION OF EVIDENCE / ATTACHMENT</th>
-        </tr>
-        {{range .Tasks}}
-        <tr>
-          <td><strong>{{.Title}}</strong></td>
-          <td class="achievements-cell">{{if .Achievements}}{{.Achievements}}{{else}}&nbsp;{{end}}</td>
-          <td class="multi-line-cell">{{if .Challenges}}{{.Challenges}}{{else}}&nbsp;{{end}}</td>
-          <td class="multi-line-cell">{{if .SupportRequired}}{{.SupportRequired}}{{else}}&nbsp;{{end}}</td>
-          <td class="multi-line-cell">{{if .SupportFrom}}{{.SupportFrom}}{{else}}&nbsp;{{end}}</td>
-          <td class="multi-line-cell">{{if .FollowUp}}{{.FollowUp}}{{else}}&nbsp;{{end}}</td>
-          <td>{{if .CompletedAt}}{{.CompletedAt.Format "2006-01-02"}}{{else}}&nbsp;{{end}}</td>
-          <td>
-            {{if .URL}}
-              <a href="{{.URL}}" target="_blank">View in ClickUp</a>
-            {{else}}
-              &nbsp;
-            {{end}}
-          </td>
-        </tr>
-        {{end}}
-      </table>
-    </div>
-    {{end}}
   </div>
 </body>
 </html>
