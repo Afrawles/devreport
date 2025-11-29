@@ -249,7 +249,7 @@ func generateReport(cmd *cobra.Command, args []string) {
 	defer finishBar(exportBar)
 
 	// json
-	jsonFile := fmt.Sprintf("report_%s_%s.json", username, time.Now().Format("20060102"))
+	jsonFile := fmt.Sprintf("report_%s_%s.json", username, time.Now().Format("20060102_150405"))
 	if err := exporter.ExportJSON(tasks, jsonFile); err != nil {
 		fmt.Printf("Failed to export JSON: %v\n", err)
 	} else {
@@ -257,7 +257,7 @@ func generateReport(cmd *cobra.Command, args []string) {
 	}
 
 	//html
-	htmlFile := fmt.Sprintf("report_%s_%s.html", username, time.Now().Format("20060102"))
+	htmlFile := fmt.Sprintf("report_%s_%s.html", username, time.Now().Format("20060102_150405"))
 	reportConfig := map[string]any{
 		"Year":   year,
 		"Period": period,
