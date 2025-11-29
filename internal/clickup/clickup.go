@@ -66,11 +66,12 @@ func (c *ClickUpSource) FetchTasks(user string, start, end time.Time) ([]report.
 			projectName = t.List.Name
 		}
 
+		rephrased := rephraseTask(t.Description)
 		task := report.Task{
 			ID:              t.ID,
 			Title:           t.Name,
 			Description:     t.Description,
-			Achievements:    t.Description,
+			Achievements:    rephrased,
 			Status:          t.Status.Status,
 			URL:             t.URL,
 			CreatedAt:       createdAt,
