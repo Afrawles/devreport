@@ -153,6 +153,7 @@ func (c *Client) FetchTasksForList(listID string, start, end time.Time) ([]Click
 		q.Add("subtasks", "true")
 		q.Add("include_timl", "true")
 		q.Add("order_by", "created")
+		q.Add("include_closed", "true")
 		q.Add("page", fmt.Sprintf("%d", page))
 
 		if len(c.assigneeIDs) > 0 {
