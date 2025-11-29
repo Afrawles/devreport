@@ -32,17 +32,24 @@ type ollamaChatResponse struct {
 	DoneReason string `json:"done_reason"`
 }
 
-// rephraseBatch takes a slice of achievements and rephrases them using Ollama.
-func rephraseBatch(achievements []string) []string {
-	if len(achievements) == 0 {
-		return achievements
+// rephraseTask takes a ClickUp task description and rephrases it as a professional achievement.
+func rephraseTask(taskDescription string) string {
+	if strings.TrimSpace(taskDescription) == "" {
+		return taskDescription
 	}
 
-	client := &http.Client{Timeout: 60 * time.Second}
-
-	prompt := "Rephrase each bullet point below to be concise and professional using verbs. " +
-		"Keep the bullet point format (•). Return exactly one line per input, in the same order:\n\n" +
-		strings.Join(achievements, "\n")
+	client := &http.Client{Timeout: 30 * time.Second}
+	
+	prompt := "Rephrase the following task description as a concise, professional achievement bullet point.\n\n" +
+		"STRICT RULES:\n" +
+		"1. Use strong action verbs and focus on the accomplishment\n" +
+		"2. For currency: Add 'UGX' prefix to numbers that represent money (e.g., '5000' becomes 'UGX 5000')\n" +
+		"3. PRESERVE all numerical values EXACTLY as written - do not modify, round, or change any numbers\n" +
+		"4. Only fix spelling errors and grammar mistakes\n" +
+		"5. Do NOT change the core meaning or description of the task\n" +
+		"6. Return only the rephrased text without bullet point symbols (•, -, *)\n\n" +
+		"Original description:\n" +
+		taskDescription
 
 	reqBody, err := json.Marshal(ollamaChatRequest{
 		Model: "gemma3",
@@ -52,60 +59,40 @@ func rephraseBatch(achievements []string) []string {
 		Stream: false,
 	})
 	if err != nil {
-		fmt.Printf("Failed to marshal Ollama request, using original achievements: %v\n", err)
-		return achievements
+		fmt.Printf("Failed to marshal Ollama request: %v\n", err)
+		return taskDescription
 	}
 
 	resp, err := client.Post("http://localhost:11434/api/chat", "application/json", bytes.NewBuffer(reqBody))
 	if err != nil {
-		fmt.Printf("Ollama unavailable, using original achievements: %v\n", err)
-		return achievements
+		fmt.Printf("Ollama unavailable: %v\n", err)
+		return taskDescription
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		fmt.Printf("Ollama returned status %d, using original achievements\n", resp.StatusCode)
-		return achievements
+		fmt.Printf("Ollama returned status %d\n", resp.StatusCode)
+		return taskDescription
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Printf("Failed to read Ollama response, using original achievements: %v\n", err)
-		return achievements
+		fmt.Printf("Failed to read Ollama response: %v\n", err)
+		return taskDescription
 	}
 
 	var parsed ollamaChatResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		fmt.Printf("Failed to decode Ollama response: %v\n", err)
-		return achievements
+		return taskDescription
 	}
 
-	content := strings.TrimSpace(parsed.Message.Content)
-	if content == "" {
-		fmt.Printf("Ollama returned empty content, using original achievements\n")
-		return achievements
+	rephrased := strings.TrimSpace(parsed.Message.Content)
+	if rephrased == "" {
+		fmt.Printf("Ollama returned empty content\n")
+		return taskDescription
 	}
 
-	// if len(content) > 200 {
-	// 	fmt.Printf("Ollama response preview: %s...\n", content[:200])
-	// }
-
-	rephrased := strings.Split(content, "\n")
-
-	var cleanedRephrased []string
-	for _, line := range rephrased {
-		trimmed := strings.TrimSpace(line)
-		if trimmed != "" {
-			cleanedRephrased = append(cleanedRephrased, trimmed)
-		}
-	}
-	//
-	// if len(cleanedRephrased) != len(achievements) {
-	// 	fmt.Printf("Ollama returned %d lines, expected %d; using original achievements\n",
-	// 		len(cleanedRephrased), len(achievements))
-	// 	return achievements
-	// }
-
-	fmt.Printf("Successfully rephrased %d achievements using Ollama\n", len(cleanedRephrased))
-	return cleanedRephrased
+	fmt.Printf("Successfully rephrased task: %s -> %s\n", taskDescription, rephrased)
+	return rephrased
 }
