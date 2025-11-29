@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"os"
+	"sort"
 	"time"
 
 	"golang.org/x/text/cases"
@@ -49,9 +50,8 @@ func (e *Exporter) ExportHTML(tasks []Task, stats map[string]any, filename, auth
 	}
 	defer f.Close()
 
-	year := 2025
-	period := "October"
-
+	year := time.Now().Year()
+	period := time.Now().Format("January")
 	if config != nil {
 		if y, ok := config["Year"].(int); ok {
 			year = y
@@ -61,9 +61,36 @@ func (e *Exporter) ExportHTML(tasks []Task, stats map[string]any, filename, auth
 		}
 	}
 
+	tasksByProject := make(map[string][]Task)
+	for _, task := range tasks {
+		source := task.Source
+		if source == "" {
+			source = "Uncategorized"
+		}
+		tasksByProject[source] = append(tasksByProject[source], task)
+	}
+	
+	type ProjectGroup struct {
+		ProjectName string
+		Tasks       []Task
+	}
+	
+	var groupedTasks []ProjectGroup
+	for projectName, projectTasks := range tasksByProject {
+		groupedTasks = append(groupedTasks, ProjectGroup{
+			ProjectName: projectName,
+			Tasks:       projectTasks,
+		})
+	}
+	
+	sort.Slice(groupedTasks, func(i, j int) bool {
+		return groupedTasks[i].ProjectName < groupedTasks[j].ProjectName
+	})
+
 	data := map[string]any{
 		"Date":        time.Now().Format("2006-01-02 15:04:05"),
 		"Tasks":       tasks,
+		"GroupedTasks": groupedTasks,
 		"Stats":       stats,
 		"Year":        year,
 		"Department":  "Information Systems",
