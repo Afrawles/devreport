@@ -40,10 +40,15 @@ func rephraseTask(taskDescription string) string {
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	
-	prompt := "Rephrase the following task description as a concise, professional achievement bullet point. " +
-		"Use strong action verbs and focus on the accomplishment. " +
-		"For Currency only use UGX and strictly Ugandan " +
-		"Return only the rephrased achievement without bullet point symbols:\n\n" +
+	prompt := "Rephrase the following task description as a concise, professional achievement bullet point.\n\n" +
+		"STRICT RULES:\n" +
+		"1. Use strong action verbs and focus on the accomplishment\n" +
+		"2. For currency: Add 'UGX' prefix to numbers that represent money (e.g., '5000' becomes 'UGX 5000')\n" +
+		"3. PRESERVE all numerical values EXACTLY as written - do not modify, round, or change any numbers\n" +
+		"4. Only fix spelling errors and grammar mistakes\n" +
+		"5. Do NOT change the core meaning or description of the task\n" +
+		"6. Return only the rephrased text without bullet point symbols (•, -, *)\n\n" +
+		"Original description:\n" +
 		taskDescription
 
 	reqBody, err := json.Marshal(ollamaChatRequest{
