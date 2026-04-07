@@ -52,7 +52,8 @@ func rephraseTask(taskDescription string) string {
 		taskDescription
 
 	reqBody, err := json.Marshal(ollamaChatRequest{
-		Model: "gemma3",
+		// TODO: make this configurable
+		Model: "mistral-nemo:latest",
 		Messages: []ollamaMessage{
 			{Role: "user", Content: prompt},
 		},

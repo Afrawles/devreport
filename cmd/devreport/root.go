@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Afrawles/devreport/internal/clickup"
+	"github.com/Afrawles/devreport/internal/github"
 	"github.com/Afrawles/devreport/internal/report"
 	"github.com/spf13/cobra"
 
@@ -15,23 +16,28 @@ import (
 )
 
 var (
-	startDate        string
-	endDate          string
-	username         string
-	output           string
-	clickUpToken     string
-	clickUpAssignees string
-	clickupListIDs   string
-	clickupFolderID  string
-	author           string
-	category         string
-	challenges       string
-	supportRequired  string
-	supportFrom      string
-	followUp         string
-	period           string
-	year             int
-	csvOutput        string
+	startDate                   string
+	endDate                     string
+	username                    string
+	output                      string
+	clickUpToken                string
+	clickUpAssignees            string
+	clickupListIDs              string
+	clickupFolderID             string
+	author                      string
+	category                    string
+	challenges                  string
+	supportRequired             string
+	supportFrom                 string
+	followUp                    string
+	period                      string
+	year                        int
+	csvOutput                   string
+	githubToken                 string
+	githubOrgs                  string
+	githubUsername              string
+	githubIncludeReviewedPRs    bool
+	githubIncludeAssignedIssues bool
 )
 
 var rootCmd = &cobra.Command{
@@ -86,6 +92,13 @@ func init() {
 	rootCmd.Flags().IntVar(&year, "year", time.Now().Year(), "Report year")
 
 	rootCmd.Flags().StringVar(&csvOutput, "csv", "", "Generate CSV summary reports (directory or filename prefix)")
+
+	// github
+	rootCmd.Flags().StringVar(&githubToken, "github-token", "", "GitHub personal access token")
+	rootCmd.Flags().StringVar(&githubOrgs, "github-orgs", "", "Comma-separated GitHub organization names")
+	rootCmd.Flags().StringVar(&githubUsername, "github-username", "", "GitHub username (defaults to --user)")
+	rootCmd.Flags().BoolVar(&githubIncludeReviewedPRs, "github-include-reviewed-prs", false, "Include PRs reviewed by the user")
+	rootCmd.Flags().BoolVar(&githubIncludeAssignedIssues, "github-include-assigned-issues", false, "Include issues assigned to the user")
 
 	summaryCmd.Flags().StringVar(&periodFlag, "period", "this-week", "Period: today, yesterday, this-week, last-week, this-month, last-month, all-time")
 	summaryCmd.Flags().StringVar(&clickUpToken, "clickup-token", "", "ClickUp API token")
@@ -187,9 +200,36 @@ func generateReport(cmd *cobra.Command, args []string) {
 		fmt.Println("ClickUp token provided but assignee IDs missing")
 	}
 
+	// github
+	ghToken := githubToken
+	if ghToken == "" {
+		ghToken = os.Getenv("GITHUB_TOKEN")
+	}
+
+	orgStr := githubOrgs
+	if orgStr == "" {
+		orgStr = os.Getenv("GITHUB_ORGS")
+	}
+
+	ghUsername := githubUsername
+	if ghUsername == "" {
+		ghUsername = username
+	}
+
+	if ghToken != "" && orgStr != "" {
+		orgs := strings.Split(orgStr, ",")
+		for i := range orgs {
+			orgs[i] = strings.TrimSpace(orgs[i])
+		}
+
+		sources = append(sources, github.NewGitHubSource(ghToken, orgs, ghUsername, githubIncludeReviewedPRs, githubIncludeAssignedIssues))
+	} else if ghToken != "" {
+		fmt.Println("GitHub token provided but orgs missing")
+	}
+
 	if len(sources) == 0 {
 		fmt.Println("No data sources configured. Set tokens via flags or environment variables.")
-		fmt.Println("Required: CLICKUP_API_KEY + CLICKUP_ASSIGNEE_IDS + (CLICKUP_LISTIDS or CLICKUP_FOLDERID)")
+		fmt.Println("Required: CLICKUP_API_KEY + CLICKUP_ASSIGNEE_IDS + (CLICKUP_LISTIDS or CLICKUP_FOLDERID) or GITHUB_TOKEN + GITHUB_ORGS")
 		return
 	}
 
