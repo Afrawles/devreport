@@ -3,6 +3,9 @@ package github
 import (
 	"context"
 	"fmt"
+	"math"
+	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,6 +38,91 @@ func NewClient(token string, orgs []string, username string, includeReviewedPRs,
 	}
 }
 
+// makeRequestWithRetry executes a GitHub API request with rate limit handling and retry logic
+func (c *Client) makeRequestWithRetry(ctx context.Context, fn func() (*http.Response, error)) (*http.Response, error) {
+	const maxRetries = 5
+	baseDelay := time.Second
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		resp, err := fn()
+		if err != nil {
+			return resp, err
+		}
+
+		// Check for rate limit errors
+		if resp.StatusCode == 403 || resp.StatusCode == 429 {
+			retryAfter := resp.Header.Get("Retry-After")
+			if retryAfter != "" {
+				if seconds, err := strconv.Atoi(retryAfter); err == nil {
+					time.Sleep(time.Duration(seconds) * time.Second)
+					continue
+				}
+			}
+
+			// Check rate limit headers
+			remaining := resp.Header.Get("X-RateLimit-Remaining")
+			reset := resp.Header.Get("X-RateLimit-Reset")
+			if remaining == "0" && reset != "" {
+				if resetTime, err := strconv.ParseInt(reset, 10, 64); err == nil {
+					waitTime := time.Until(time.Unix(resetTime, 0))
+					if waitTime > 0 {
+						time.Sleep(waitTime)
+						continue
+					}
+				}
+			}
+
+			// Exponential backoff for secondary rate limits
+			delay := time.Duration(math.Pow(2, float64(attempt))) * baseDelay
+			time.Sleep(delay)
+			continue
+		}
+
+		// Success or non-rate-limit error
+		return resp, err
+	}
+
+	return nil, fmt.Errorf("max retries exceeded")
+}
+
+// handleRateLimit checks for rate limit errors and sleeps if necessary
+func (c *Client) handleRateLimit(resp *github.Response, err error) error {
+	if resp == nil {
+		return err
+	}
+
+	if resp.StatusCode == 403 || resp.StatusCode == 429 {
+		retryAfter := resp.Header.Get("Retry-After")
+		if retryAfter != "" {
+			if seconds, err := strconv.Atoi(retryAfter); err == nil {
+				fmt.Printf("Rate limited. Waiting %d seconds...\n", seconds)
+				time.Sleep(time.Duration(seconds) * time.Second)
+				return nil // Retry
+			}
+		}
+
+		remaining := resp.Header.Get("X-RateLimit-Remaining")
+		reset := resp.Header.Get("X-RateLimit-Reset")
+		if remaining == "0" && reset != "" {
+			if resetTime, err := strconv.ParseInt(reset, 10, 64); err == nil {
+				waitTime := time.Until(time.Unix(resetTime, 0))
+				if waitTime > 0 {
+					fmt.Printf("Rate limited. Waiting %v until reset...\n", waitTime)
+					time.Sleep(waitTime)
+					return nil // Retry
+				}
+			}
+		}
+
+		// If we can't determine wait time, wait 60 seconds
+		fmt.Println("Rate limited. Waiting 60 seconds...")
+		time.Sleep(60 * time.Second)
+		return nil
+	}
+
+	return err
+}
+
 func (c *Client) HealthCheck() error {
 	_, _, err := c.client.Zen(context.Background())
 	return err
@@ -56,6 +144,10 @@ func (c *Client) FetchCommits(ctx context.Context, start, end time.Time) ([]*git
 	for {
 		commits, resp, err := c.client.Search.Commits(ctx, query, opts)
 		if err != nil {
+			// Check if it's a rate limit error and retry
+			if rateErr := c.handleRateLimit(resp, err); rateErr != nil {
+				return nil, rateErr
+			}
 			return nil, err
 		}
 		allCommits = append(allCommits, commits.Commits...)
@@ -64,6 +156,9 @@ func (c *Client) FetchCommits(ctx context.Context, start, end time.Time) ([]*git
 			break
 		}
 		opts.Page = resp.NextPage
+
+		// Small delay between requests to avoid secondary rate limits
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	return allCommits, nil
@@ -85,6 +180,9 @@ func (c *Client) FetchPRs(ctx context.Context, start, end time.Time) ([]*github.
 	for {
 		result, resp, err := c.client.Search.Issues(ctx, query, opts)
 		if err != nil {
+			if rateErr := c.handleRateLimit(resp, err); rateErr != nil {
+				return nil, rateErr
+			}
 			return nil, err
 		}
 		allPRs = append(allPRs, result.Issues...)
@@ -93,6 +191,9 @@ func (c *Client) FetchPRs(ctx context.Context, start, end time.Time) ([]*github.
 			break
 		}
 		opts.Page = resp.NextPage
+
+		// Small delay between requests
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	// If include reviewed PRs
@@ -145,6 +246,9 @@ func (c *Client) getOrgRepos(ctx context.Context, org string) ([]*github.Reposit
 	for {
 		result, resp, err := c.client.Repositories.ListByOrg(ctx, org, opts)
 		if err != nil {
+			if rateErr := c.handleRateLimit(resp, err); rateErr != nil {
+				return nil, rateErr
+			}
 			return nil, err
 		}
 		repos = append(repos, result...)
@@ -152,6 +256,9 @@ func (c *Client) getOrgRepos(ctx context.Context, org string) ([]*github.Reposit
 			break
 		}
 		opts.Page = resp.NextPage
+
+		// Small delay between requests
+		time.Sleep(100 * time.Millisecond)
 	}
 	return repos, nil
 }
@@ -167,6 +274,9 @@ func (c *Client) getReviewedPRsInRepo(ctx context.Context, owner, repo string, s
 	for {
 		result, resp, err := c.client.PullRequests.List(ctx, owner, repo, opts)
 		if err != nil {
+			if rateErr := c.handleRateLimit(resp, err); rateErr != nil {
+				return nil, rateErr
+			}
 			return nil, err
 		}
 
@@ -177,6 +287,7 @@ func (c *Client) getReviewedPRsInRepo(ctx context.Context, owner, repo string, s
 			// Check if user reviewed
 			reviews, _, err := c.client.PullRequests.ListReviews(ctx, owner, repo, *pr.Number, nil)
 			if err != nil {
+				// Skip if can't get reviews, but don't fail
 				continue
 			}
 			for _, review := range reviews {
@@ -201,6 +312,9 @@ func (c *Client) getReviewedPRsInRepo(ctx context.Context, owner, repo string, s
 			break
 		}
 		opts.Page = resp.NextPage
+
+		// Small delay between requests
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	return prs, nil
@@ -222,6 +336,9 @@ func (c *Client) FetchIssues(ctx context.Context, start, end time.Time) ([]*gith
 	for {
 		result, resp, err := c.client.Search.Issues(ctx, query, opts)
 		if err != nil {
+			if rateErr := c.handleRateLimit(resp, err); rateErr != nil {
+				return nil, rateErr
+			}
 			return nil, err
 		}
 		allIssues = append(allIssues, result.Issues...)
@@ -230,6 +347,9 @@ func (c *Client) FetchIssues(ctx context.Context, start, end time.Time) ([]*gith
 			break
 		}
 		opts.Page = resp.NextPage
+
+		// Small delay between requests
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	// If include assigned issues
@@ -269,6 +389,9 @@ func (c *Client) fetchAssignedIssues(ctx context.Context, start, end time.Time) 
 	for {
 		result, resp, err := c.client.Search.Issues(ctx, query, opts)
 		if err != nil {
+			if rateErr := c.handleRateLimit(resp, err); rateErr != nil {
+				return nil, rateErr
+			}
 			return nil, err
 		}
 		allIssues = append(allIssues, result.Issues...)
@@ -277,6 +400,9 @@ func (c *Client) fetchAssignedIssues(ctx context.Context, start, end time.Time) 
 			break
 		}
 		opts.Page = resp.NextPage
+
+		// Small delay between requests
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	return allIssues, nil
