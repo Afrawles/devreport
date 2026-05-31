@@ -38,6 +38,8 @@ var (
 	githubUsername              string
 	githubIncludeReviewedPRs    bool
 	githubIncludeAssignedIssues bool
+
+	githubRepos string
 )
 
 var rootCmd = &cobra.Command{
@@ -96,7 +98,7 @@ func init() {
 	// github
 	rootCmd.Flags().StringVar(&githubToken, "github-token", "", "GitHub personal access token")
 	rootCmd.Flags().StringVar(&githubOrgs, "github-orgs", "", "Comma-separated GitHub organization names")
-	rootCmd.Flags().StringVar(&githubUsername, "github-username", "", "GitHub username (defaults to --user)")
+	rootCmd.Flags().StringVar(&githubUsername, "github-username", "", "GitHub username/login (defaults to GITHUB_USERNAME, then --user)")
 	rootCmd.Flags().BoolVar(&githubIncludeReviewedPRs, "github-include-reviewed-prs", false, "Include PRs reviewed by the user")
 	rootCmd.Flags().BoolVar(&githubIncludeAssignedIssues, "github-include-assigned-issues", false, "Include issues assigned to the user")
 
@@ -106,6 +108,8 @@ func init() {
 	summaryCmd.Flags().StringVar(&clickupFolderID, "clickup-folderid", "", "ClickUp Folder ID (fetches all lists in folder)")
 	summaryCmd.Flags().StringVar(&clickUpAssignees, "clickup-assignees", "", "Filter by assignee IDs (optional)")
 	summaryCmd.Flags().StringVar(&csvOutput, "csv", "reports", "Output directory for CSV reports")
+
+	rootCmd.Flags().StringVar(&githubRepos, "github-repos", "", "Comma-separated GitHub repository names to filter (optional, defaults to all org repos)")
 }
 
 func generateReport(cmd *cobra.Command, args []string) {
@@ -130,6 +134,7 @@ func generateReport(cmd *cobra.Command, args []string) {
 			fmt.Printf("Invalid end date: %v\n", err)
 			return
 		}
+		end = end.AddDate(0, 0, 1).Add(-time.Nanosecond)
 	}
 
 	if username == "" {
@@ -213,16 +218,33 @@ func generateReport(cmd *cobra.Command, args []string) {
 
 	ghUsername := githubUsername
 	if ghUsername == "" {
+		ghUsername = os.Getenv("GITHUB_USERNAME")
+	}
+	if ghUsername == "" {
 		ghUsername = username
 	}
 
 	if ghToken != "" && orgStr != "" {
+		if strings.ContainsAny(ghUsername, " \t\n") {
+			fmt.Printf("GitHub username %q looks like a display name. Use --github-username with your GitHub login.\n", ghUsername)
+			return
+		}
+
 		orgs := strings.Split(orgStr, ",")
 		for i := range orgs {
 			orgs[i] = strings.TrimSpace(orgs[i])
 		}
 
-		sources = append(sources, github.NewGitHubSource(ghToken, orgs, ghUsername, githubIncludeReviewedPRs, githubIncludeAssignedIssues))
+		var repos []string
+		if githubRepos != "" {
+			repos = strings.Split(githubRepos, ",")
+			for i := range repos {
+				repos[i] = strings.TrimSpace(repos[i])
+			}
+		}
+
+		fmt.Printf("Using GitHub username: %s\n", ghUsername)
+		sources = append(sources, github.NewGitHubSource(ghToken, orgs, ghUsername, repos, githubIncludeReviewedPRs, githubIncludeAssignedIssues))
 	} else if ghToken != "" {
 		fmt.Println("GitHub token provided but orgs missing")
 	}

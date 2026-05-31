@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -16,12 +15,14 @@ import (
 type Client struct {
 	client                *github.Client
 	orgs                  []string
+	repos                 []string
 	username              string
 	includeReviewedPRs    bool
 	includeAssignedIssues bool
+	repoCache             map[string][]*github.Repository
 }
 
-func NewClient(token string, orgs []string, username string, includeReviewedPRs, includeAssignedIssues bool) *Client {
+func NewClient(token string, orgs []string, repos []string, username string, includeReviewedPRs, includeAssignedIssues bool) *Client {
 	var tc oauth2.TokenSource
 	if token != "" {
 		tc = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
@@ -32,60 +33,14 @@ func NewClient(token string, orgs []string, username string, includeReviewedPRs,
 	return &Client{
 		client:                client,
 		orgs:                  orgs,
+		repos:                 repos,
 		username:              username,
 		includeReviewedPRs:    includeReviewedPRs,
 		includeAssignedIssues: includeAssignedIssues,
+		repoCache:             make(map[string][]*github.Repository),
 	}
 }
 
-// makeRequestWithRetry executes a GitHub API request with rate limit handling and retry logic
-func (c *Client) makeRequestWithRetry(ctx context.Context, fn func() (*http.Response, error)) (*http.Response, error) {
-	const maxRetries = 5
-	baseDelay := time.Second
-
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		resp, err := fn()
-		if err != nil {
-			return resp, err
-		}
-
-		// Check for rate limit errors
-		if resp.StatusCode == 403 || resp.StatusCode == 429 {
-			retryAfter := resp.Header.Get("Retry-After")
-			if retryAfter != "" {
-				if seconds, err := strconv.Atoi(retryAfter); err == nil {
-					time.Sleep(time.Duration(seconds) * time.Second)
-					continue
-				}
-			}
-
-			// Check rate limit headers
-			remaining := resp.Header.Get("X-RateLimit-Remaining")
-			reset := resp.Header.Get("X-RateLimit-Reset")
-			if remaining == "0" && reset != "" {
-				if resetTime, err := strconv.ParseInt(reset, 10, 64); err == nil {
-					waitTime := time.Until(time.Unix(resetTime, 0))
-					if waitTime > 0 {
-						time.Sleep(waitTime)
-						continue
-					}
-				}
-			}
-
-			// Exponential backoff for secondary rate limits
-			delay := time.Duration(math.Pow(2, float64(attempt))) * baseDelay
-			time.Sleep(delay)
-			continue
-		}
-
-		// Success or non-rate-limit error
-		return resp, err
-	}
-
-	return nil, fmt.Errorf("max retries exceeded")
-}
-
-// handleRateLimit checks for rate limit errors and sleeps if necessary
 func (c *Client) handleRateLimit(resp *github.Response, err error) error {
 	if resp == nil {
 		return err
@@ -94,27 +49,26 @@ func (c *Client) handleRateLimit(resp *github.Response, err error) error {
 	if resp.StatusCode == 403 || resp.StatusCode == 429 {
 		retryAfter := resp.Header.Get("Retry-After")
 		if retryAfter != "" {
-			if seconds, err := strconv.Atoi(retryAfter); err == nil {
+			if seconds, parseErr := strconv.Atoi(retryAfter); parseErr == nil {
 				fmt.Printf("Rate limited. Waiting %d seconds...\n", seconds)
 				time.Sleep(time.Duration(seconds) * time.Second)
-				return nil // Retry
+				return nil
 			}
 		}
 
 		remaining := resp.Header.Get("X-RateLimit-Remaining")
 		reset := resp.Header.Get("X-RateLimit-Reset")
 		if remaining == "0" && reset != "" {
-			if resetTime, err := strconv.ParseInt(reset, 10, 64); err == nil {
+			if resetTime, parseErr := strconv.ParseInt(reset, 10, 64); parseErr == nil {
 				waitTime := time.Until(time.Unix(resetTime, 0))
 				if waitTime > 0 {
 					fmt.Printf("Rate limited. Waiting %v until reset...\n", waitTime)
 					time.Sleep(waitTime)
-					return nil // Retry
+					return nil
 				}
 			}
 		}
 
-		// If we can't determine wait time, wait 60 seconds
 		fmt.Println("Rate limited. Waiting 60 seconds...")
 		time.Sleep(60 * time.Second)
 		return nil
@@ -123,122 +77,276 @@ func (c *Client) handleRateLimit(resp *github.Response, err error) error {
 	return err
 }
 
+func (c *Client) handleRateLimitWithRetry(attempt int) {
+	delay := time.Duration(math.Pow(2, float64(attempt))) * time.Second
+	time.Sleep(delay)
+}
+
 func (c *Client) HealthCheck() error {
 	_, _, err := c.client.Zen(context.Background())
 	return err
 }
 
-func (c *Client) FetchCommits(ctx context.Context, start, end time.Time) ([]*github.CommitResult, error) {
-	var allCommits []*github.CommitResult
-
-	query := fmt.Sprintf("author:%s committer-date:%s..%s", c.username, start.Format("2006-01-02"), end.Format("2006-01-02"))
-	if len(c.orgs) > 0 {
-		orgQuery := strings.Join(c.orgs, " org:")
-		query += " org:" + orgQuery
-	}
-
-	opts := &github.SearchOptions{
-		ListOptions: github.ListOptions{PerPage: 100},
-	}
-
-	for {
-		commits, resp, err := c.client.Search.Commits(ctx, query, opts)
-		if err != nil {
-			// Check if it's a rate limit error and retry
-			if rateErr := c.handleRateLimit(resp, err); rateErr != nil {
-				return nil, rateErr
-			}
-			return nil, err
-		}
-		allCommits = append(allCommits, commits.Commits...)
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opts.Page = resp.NextPage
-
-		// Small delay between requests to avoid secondary rate limits
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	return allCommits, nil
+type PRWithCommits struct {
+	PR      *github.PullRequest
+	Commits []*github.RepositoryCommit
 }
 
-func (c *Client) FetchPRs(ctx context.Context, start, end time.Time) ([]*github.Issue, error) {
-	var allPRs []*github.Issue
-
-	query := fmt.Sprintf("author:%s type:pr created:%s..%s", c.username, start.Format("2006-01-02"), end.Format("2006-01-02"))
-	if len(c.orgs) > 0 {
-		orgQuery := strings.Join(c.orgs, " org:")
-		query += " org:" + orgQuery
-	}
-
-	opts := &github.SearchOptions{
-		ListOptions: github.ListOptions{PerPage: 100},
-	}
-
-	for {
-		result, resp, err := c.client.Search.Issues(ctx, query, opts)
-		if err != nil {
-			if rateErr := c.handleRateLimit(resp, err); rateErr != nil {
-				return nil, rateErr
-			}
-			return nil, err
-		}
-		allPRs = append(allPRs, result.Issues...)
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opts.Page = resp.NextPage
-
-		// Small delay between requests
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	// If include reviewed PRs
-	if c.includeReviewedPRs {
-		reviewedPRs, err := c.fetchReviewedPRs(ctx, start, end)
-		if err != nil {
-			return nil, err
-		}
-		// Merge, avoiding duplicates
-		prMap := make(map[int64]*github.Issue)
-		for _, pr := range allPRs {
-			prMap[int64(*pr.Number)] = pr
-		}
-		for _, pr := range reviewedPRs {
-			if _, exists := prMap[int64(*pr.Number)]; !exists {
-				allPRs = append(allPRs, pr)
-			}
-		}
-	}
-
-	return allPRs, nil
-}
-
-func (c *Client) fetchReviewedPRs(ctx context.Context, start, end time.Time) ([]*github.Issue, error) {
-	var allPRs []*github.Issue
+// FetchPRsWithCommits fetches PRs authored by the user and attaches their commits.
+// This is the primary fetch — commits are derived from PRs, not searched separately.
+func (c *Client) FetchPRsWithCommits(ctx context.Context, start, end time.Time) ([]*PRWithCommits, error) {
+	var results []*PRWithCommits
+	seen := make(map[string]bool)
 
 	for _, org := range c.orgs {
 		repos, err := c.getOrgRepos(ctx, org)
 		if err != nil {
+			fmt.Printf("Warning: could not list repos for org %s: %v\n", org, err)
 			continue
 		}
+
 		for _, repo := range repos {
-			repoName := *repo.Name
-			prs, err := c.getReviewedPRsInRepo(ctx, org, repoName, start, end)
+			prs, err := c.fetchPRsInRepo(ctx, org, *repo.Name, start, end)
 			if err != nil {
+				fmt.Printf("Warning: could not fetch PRs for %s/%s: %v\n", org, *repo.Name, err)
 				continue
 			}
-			allPRs = append(allPRs, prs...)
+
+			for _, pr := range prs {
+				key := fmt.Sprintf("%s/%s#%d", org, *repo.Name, *pr.Number)
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+
+				commits, err := c.fetchPRCommits(ctx, org, *repo.Name, *pr.Number)
+				if err != nil {
+					fmt.Printf("Warning: could not fetch commits for PR %s: %v\n", key, err)
+					commits = nil
+				}
+
+				results = append(results, &PRWithCommits{
+					PR:      pr,
+					Commits: commits,
+				})
+			}
 		}
 	}
 
-	return allPRs, nil
+	return results, nil
+}
+
+func (c *Client) fetchPRsInRepo(ctx context.Context, org, repo string, start, end time.Time) ([]*github.PullRequest, error) {
+	var prs []*github.PullRequest
+
+	opts := &github.PullRequestListOptions{
+		State:       "all",
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+
+	for {
+		result, resp, err := c.client.PullRequests.List(ctx, org, repo, opts)
+		if err != nil {
+			if rateErr := c.handleRateLimit(resp, err); rateErr != nil {
+				return nil, rateErr
+			}
+			return nil, err
+		}
+
+		for _, pr := range result {
+			if pr.CreatedAt == nil {
+				continue
+			}
+			if pr.CreatedAt.After(end) {
+				continue
+			}
+			if pr.CreatedAt.Before(start) {
+				return prs, nil
+			}
+			if pr.User == nil || pr.User.Login == nil {
+				continue
+			}
+			if !strings.EqualFold(*pr.User.Login, c.username) {
+				continue
+			}
+			prs = append(prs, pr)
+		}
+
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	return prs, nil
+}
+
+func (c *Client) fetchPRCommits(ctx context.Context, org, repo string, prNumber int) ([]*github.RepositoryCommit, error) {
+	var commits []*github.RepositoryCommit
+
+	opts := &github.ListOptions{PerPage: 100}
+	for {
+		result, resp, err := c.client.PullRequests.ListCommits(ctx, org, repo, prNumber, opts)
+		if err != nil {
+			if rateErr := c.handleRateLimit(resp, err); rateErr != nil {
+				return nil, rateErr
+			}
+			return nil, err
+		}
+		commits = append(commits, result...)
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	return commits, nil
+}
+
+// FetchIssues fetches issues created by the user in the date range.
+func (c *Client) FetchIssues(ctx context.Context, start, end time.Time) ([]*github.Issue, error) {
+	var allIssues []*github.Issue
+	issueMap := make(map[string]bool)
+
+	for _, org := range c.orgs {
+		repos, err := c.getOrgRepos(ctx, org)
+		if err != nil {
+			fmt.Printf("Warning: could not list repos for org %s: %v\n", org, err)
+			continue
+		}
+
+		for _, repo := range repos {
+			opts := &github.IssueListByRepoOptions{
+				State:       "all",
+				Creator:     c.username,
+				Since:       start,
+				ListOptions: github.ListOptions{PerPage: 100},
+			}
+
+			for {
+				issues, resp, err := c.client.Issues.ListByRepo(ctx, org, *repo.Name, opts)
+				if err != nil {
+					if rateErr := c.handleRateLimit(resp, err); rateErr != nil {
+						return nil, rateErr
+					}
+					break
+				}
+
+				for _, issue := range issues {
+					if issue.IsPullRequest() {
+						continue
+					}
+					if issue.CreatedAt == nil || issue.CreatedAt.Before(start) || issue.CreatedAt.After(end) {
+						continue
+					}
+					key := fmt.Sprintf("%s/%s#%d", org, *repo.Name, *issue.Number)
+					if issueMap[key] {
+						continue
+					}
+					issueMap[key] = true
+					allIssues = append(allIssues, issue)
+				}
+
+				if resp.NextPage == 0 {
+					break
+				}
+				opts.Page = resp.NextPage
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}
+
+	if c.includeAssignedIssues {
+		assigned, err := c.fetchAssignedIssues(ctx, start, end)
+		if err != nil {
+			return nil, err
+		}
+		for _, issue := range assigned {
+			if issue.HTMLURL == nil {
+				continue
+			}
+			key := *issue.HTMLURL
+			if !issueMap[key] {
+				issueMap[key] = true
+				allIssues = append(allIssues, issue)
+			}
+		}
+	}
+
+	return allIssues, nil
+}
+
+func (c *Client) fetchAssignedIssues(ctx context.Context, start, end time.Time) ([]*github.Issue, error) {
+	var allIssues []*github.Issue
+	seen := make(map[string]bool)
+
+	for _, org := range c.orgs {
+		query := fmt.Sprintf("assignee:%s type:issue created:%s..%s org:%s",
+			c.username, start.Format("2006-01-02"), end.Format("2006-01-02"), org)
+
+		opts := &github.SearchOptions{
+			ListOptions: github.ListOptions{PerPage: 100},
+		}
+
+		for {
+			result, resp, err := c.client.Search.Issues(ctx, query, opts)
+			if err != nil {
+				if rateErr := c.handleRateLimit(resp, err); rateErr != nil {
+					return nil, rateErr
+				}
+				break
+			}
+
+			for _, issue := range result.Issues {
+				if issue.HTMLURL == nil || seen[*issue.HTMLURL] {
+					continue
+				}
+				seen[*issue.HTMLURL] = true
+				allIssues = append(allIssues, issue)
+			}
+
+			if resp.NextPage == 0 {
+				break
+			}
+			opts.Page = resp.NextPage
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+
+	return allIssues, nil
 }
 
 func (c *Client) getOrgRepos(ctx context.Context, org string) ([]*github.Repository, error) {
+	if repos, ok := c.repoCache[org]; ok {
+		return repos, nil
+	}
+
+	if len(c.repos) > 0 {
+		var filtered []*github.Repository
+		for _, repoName := range c.repos {
+			repoName = strings.TrimSpace(repoName)
+			if repoName == "" {
+				continue
+			}
+			owner := org
+			name := repoName
+			if strings.Contains(repoName, "/") {
+				parts := strings.SplitN(repoName, "/", 2)
+				owner, name = parts[0], parts[1]
+			}
+			repo, _, err := c.client.Repositories.Get(ctx, owner, name)
+			if err != nil {
+				fmt.Printf("Warning: could not fetch repo %s/%s: %v\n", owner, name, err)
+				continue
+			}
+			filtered = append(filtered, repo)
+		}
+		c.repoCache[org] = filtered
+		return filtered, nil
+	}
+
 	opts := &github.RepositoryListByOrgOptions{
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
@@ -256,154 +364,9 @@ func (c *Client) getOrgRepos(ctx context.Context, org string) ([]*github.Reposit
 			break
 		}
 		opts.Page = resp.NextPage
-
-		// Small delay between requests
 		time.Sleep(100 * time.Millisecond)
 	}
+
+	c.repoCache[org] = repos
 	return repos, nil
-}
-
-func (c *Client) getReviewedPRsInRepo(ctx context.Context, owner, repo string, start, end time.Time) ([]*github.Issue, error) {
-	var prs []*github.Issue
-
-	opts := &github.PullRequestListOptions{
-		State:       "all",
-		ListOptions: github.ListOptions{PerPage: 100},
-	}
-
-	for {
-		result, resp, err := c.client.PullRequests.List(ctx, owner, repo, opts)
-		if err != nil {
-			if rateErr := c.handleRateLimit(resp, err); rateErr != nil {
-				return nil, rateErr
-			}
-			return nil, err
-		}
-
-		for _, pr := range result {
-			if pr.CreatedAt.After(end) || pr.CreatedAt.Before(start) {
-				continue
-			}
-			// Check if user reviewed
-			reviews, _, err := c.client.PullRequests.ListReviews(ctx, owner, repo, *pr.Number, nil)
-			if err != nil {
-				// Skip if can't get reviews, but don't fail
-				continue
-			}
-			for _, review := range reviews {
-				if review.User != nil && *review.User.Login == c.username {
-					prs = append(prs, &github.Issue{
-						Number:    pr.Number,
-						Title:     pr.Title,
-						Body:      pr.Body,
-						State:     pr.State,
-						HTMLURL:   pr.HTMLURL,
-						User:      pr.User,
-						CreatedAt: pr.CreatedAt,
-						UpdatedAt: pr.UpdatedAt,
-						ClosedAt:  pr.ClosedAt,
-					})
-					break
-				}
-			}
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opts.Page = resp.NextPage
-
-		// Small delay between requests
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	return prs, nil
-}
-
-func (c *Client) FetchIssues(ctx context.Context, start, end time.Time) ([]*github.Issue, error) {
-	var allIssues []*github.Issue
-
-	query := fmt.Sprintf("author:%s type:issue created:%s..%s", c.username, start.Format("2006-01-02"), end.Format("2006-01-02"))
-	if len(c.orgs) > 0 {
-		orgQuery := strings.Join(c.orgs, " org:")
-		query += " org:" + orgQuery
-	}
-
-	opts := &github.SearchOptions{
-		ListOptions: github.ListOptions{PerPage: 100},
-	}
-
-	for {
-		result, resp, err := c.client.Search.Issues(ctx, query, opts)
-		if err != nil {
-			if rateErr := c.handleRateLimit(resp, err); rateErr != nil {
-				return nil, rateErr
-			}
-			return nil, err
-		}
-		allIssues = append(allIssues, result.Issues...)
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opts.Page = resp.NextPage
-
-		// Small delay between requests
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	// If include assigned issues
-	if c.includeAssignedIssues {
-		assignedIssues, err := c.fetchAssignedIssues(ctx, start, end)
-		if err != nil {
-			return nil, err
-		}
-		// Merge, avoiding duplicates
-		issueMap := make(map[int64]*github.Issue)
-		for _, issue := range allIssues {
-			issueMap[int64(*issue.Number)] = issue
-		}
-		for _, issue := range assignedIssues {
-			if _, exists := issueMap[int64(*issue.Number)]; !exists {
-				allIssues = append(allIssues, issue)
-			}
-		}
-	}
-
-	return allIssues, nil
-}
-
-func (c *Client) fetchAssignedIssues(ctx context.Context, start, end time.Time) ([]*github.Issue, error) {
-	var allIssues []*github.Issue
-
-	query := fmt.Sprintf("assignee:%s type:issue created:%s..%s", c.username, start.Format("2006-01-02"), end.Format("2006-01-02"))
-	if len(c.orgs) > 0 {
-		orgQuery := strings.Join(c.orgs, " org:")
-		query += " org:" + orgQuery
-	}
-
-	opts := &github.SearchOptions{
-		ListOptions: github.ListOptions{PerPage: 100},
-	}
-
-	for {
-		result, resp, err := c.client.Search.Issues(ctx, query, opts)
-		if err != nil {
-			if rateErr := c.handleRateLimit(resp, err); rateErr != nil {
-				return nil, rateErr
-			}
-			return nil, err
-		}
-		allIssues = append(allIssues, result.Issues...)
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opts.Page = resp.NextPage
-
-		// Small delay between requests
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	return allIssues, nil
 }
