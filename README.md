@@ -6,16 +6,17 @@
 
 ## Features
 
-- **One-command reports**: Fetch from ClickUp → Generate HTML/PDF + JSON export  
-- **Smart stats**: Auto-calculates totals, completion rates, breakdowns by status/source/type  
-- **Cross-platform**: Pre-built binaries for macOS, Linux, Windows (AMD64/ARM64)  
+- **One-command reports**: Fetch from GitHub/ClickUp → Generate HTML/PDF + JSON export
+- **Smart stats**: Auto-calculates totals, completion rates, breakdowns by status/source/type
+- **Cross-platform**: Pre-built binaries for macOS, Linux, Windows (AMD64/ARM64)
 - **Optional AI Rephrasing**: Integrates with [Ollama](https://ollama.com/) for task rewording  
 
 ## Prerequisites
 
-- **ClickUp Account**: Access to tasks via API  
-- **Terminal**: sh/Zsh/PowerShell  
-- **Optional**: Browser to view HTML reports  
+- **GitHub Account**: Personal access token for API access (optional, for private repos)
+- **ClickUp Account**: Access to tasks via API
+- **Terminal**: sh/Zsh/PowerShell
+- **Optional**: Browser to view HTML reports
 - **Optional**: [Ollama](https://ollama.com/) running locally (port 11434) for AI rephrasing  
 
 ## Installing Ollama and Gemma3 on linux
@@ -121,6 +122,25 @@ curl -H "Authorization: YOUR_API_TOKEN" \
 
 ---
 
+## Getting Your GitHub Personal Access Token
+
+1. Log in to [GitHub](https://github.com)
+2. Click your profile picture → **Settings**
+3. Go to **Developer settings** → **Personal access tokens** → **Tokens (classic)**
+4. Click **Generate new token (classic)**
+5. Select scopes: `repo` (for private repos), `read:org` (for org repos)
+6. Copy the token and use it with the `--github-token` flag
+
+---
+
+## Finding Your GitHub Organizations
+
+To fetch activities from organization repositories, specify org names (e.g., "microsoft,google").
+
+Note: DevReport fetches from repos where you have recent activities in the date range to limit API calls.
+
+---
+
 ## Usage
 
 When working with multiple ClickUp lists, DevReport maps text by list order.
@@ -146,7 +166,7 @@ Explanation:
 
 ---
 
-### Basic Command
+### Basic Command (ClickUp)
 
 ```sh
 ./devreport \
@@ -164,6 +184,40 @@ Explanation:
   --support-required "Product team review|QA support for test coverage|DevOps for CI/CD automation, Management alignment|Database admin support|Load testing assistance" \
   --support-from "Product Management|QA Department|DevOps Team, IT Infrastructure|Backend Team|Project Management Office" \
   --follow-up "Conduct sprint retrospective|Optimize frontend performance|Write integration tests, Refactor legacy modules|Enhance documentation|Evaluate monitoring tools"
+```
+
+### GitHub Command
+
+```sh
+./devreport \
+  --user "gon" \
+  --start "2025-10-01" \
+  --end "2025-10-31" \
+  --author "Gon Freecss" \
+  --period "Month of October" \
+  --year 2025 \
+  --github-token "your_github_token_here" \
+  --github-orgs "hunterxhunter,chimera-ant" \
+  --github-include-reviewed-prs \
+  --github-include-assigned-issues
+```
+
+### Combined Command (GitHub + ClickUp)
+
+```sh
+./devreport \
+  --user "gon" \
+  --start "2025-10-01" \
+  --end "2025-10-31" \
+  --author "Gon Freecss" \
+  --period "Month of October" \
+  --year 2025 \
+  --clickup-token "clickup_token" \
+  --clickup-assignees 12345 \
+  --clickup-listid "11111" \
+  --github-token "github_token" \
+  --github-orgs "hunterxhunter" \
+  --github-include-reviewed-prs
 ```
 
 After execution, open the generated report:
@@ -195,6 +249,8 @@ devreport summary --period <period> --clickup-token "<token>" --clickup-folderid
 
 ## Examples
 
+### ClickUp Examples
+
 ```bash
 # Weekly report
 devreport summary --period this-week --clickup-token "pk_xxx" --clickup-folderid 123456
@@ -209,4 +265,19 @@ devreport summary --period this-week --clickup-token "pk_xxx" --clickup-folderid
 export CLICKUP_API_KEY="pk_xxx"
 export CLICKUP_FOLDERID="123456"
 devreport summary --period this-week
+```
+
+### GitHub Examples
+
+```bash
+# GitHub activities report
+devreport --user "gon" --start "2025-10-01" --end "2025-10-31" --github-token "ghp_xxx" --github-orgs "hunterxhunter"
+
+# Include reviewed PRs
+devreport --user "gon" --start "2025-10-01" --end "2025-10-31" --github-token "ghp_xxx" --github-orgs "hunterxhunter" --github-include-reviewed-prs
+
+# Use environment variables
+export GITHUB_TOKEN="ghp_xxx"
+export GITHUB_ORGS="hunterxhunter,chimera-ant"
+devreport --user "gon" --period this-month
 ```

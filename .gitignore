@@ -44,3 +44,7 @@ Thumbs.db
 reports
 
 *tar.gz
+
+.idea
+
+report_*
