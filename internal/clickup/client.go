@@ -219,14 +219,12 @@ func (c *Client) FetchTasks(listIDs []string, start, end time.Time, maxWorkers i
 
 	var wg sync.WaitGroup
 	for i := 0; i < maxWorkers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for listID := range taskCh {
 				tasks, err := c.FetchTasksForList(listID, start, end)
 				resultCh <- result{tasks: tasks, err: err}
 			}
-		}()
+		})
 	}
 
 	for _, id := range listIDs {
@@ -346,7 +344,7 @@ func (c *Client) GetListIDsAndNamesFromFolder(folderID string) ([]string, map[st
 	return ids, names, nil
 }
 
-//NOTE: Deprecated: Use GetListIDsAndNamesFromFolder instead
+// NOTE: Deprecated: Use GetListIDsAndNamesFromFolder instead
 func (c *Client) GetListIDsFromFolder(folderID string) ([]string, error) {
 	ids, _, err := c.GetListIDsAndNamesFromFolder(folderID)
 	return ids, err

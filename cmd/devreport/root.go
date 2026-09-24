@@ -9,6 +9,7 @@ import (
 
 	"github.com/Afrawles/devreport/internal/clickup"
 	"github.com/Afrawles/devreport/internal/github"
+	"github.com/Afrawles/devreport/internal/llm"
 	"github.com/Afrawles/devreport/internal/report"
 	"github.com/spf13/cobra"
 
@@ -40,6 +41,10 @@ var (
 	githubIncludeAssignedIssues bool
 
 	githubRepos string
+
+	llmProvider  string
+	claudeAPIKey string
+	claudeModel  string
 )
 
 var rootCmd = &cobra.Command{
@@ -110,6 +115,33 @@ func init() {
 	summaryCmd.Flags().StringVar(&csvOutput, "csv", "reports", "Output directory for CSV reports")
 
 	rootCmd.Flags().StringVar(&githubRepos, "github-repos", "", "Comma-separated GitHub repository names to filter (optional, defaults to all org repos)")
+
+	rootCmd.Flags().StringVar(&llmProvider, "llm-provider", "ollama", "LLM backend for rephrasing achievements: ollama or claude")
+	rootCmd.Flags().StringVar(&claudeAPIKey, "claude-api-key", "", "Anthropic API key (or ANTHROPIC_API_KEY env var)")
+	rootCmd.Flags().StringVar(&claudeModel, "claude-model", "", "Anthropic model id (default: claude-sonnet-5)")
+	summaryCmd.Flags().StringVar(&llmProvider, "llm-provider", "ollama", "LLM backend for rephrasing achievements: ollama or claude")
+	summaryCmd.Flags().StringVar(&claudeAPIKey, "claude-api-key", "", "Anthropic API key (or ANTHROPIC_API_KEY env var)")
+	summaryCmd.Flags().StringVar(&claudeModel, "claude-model", "", "Anthropic model id (default: claude-sonnet-5)")
+}
+
+func resolveLLMConfig(cmd *cobra.Command) llm.Config {
+	provider := llmProvider
+	if !cmd.Flags().Changed("llm-provider") {
+		if v := os.Getenv("LLM_PROVIDER"); v != "" {
+			provider = v
+		}
+	}
+
+	apiKey := claudeAPIKey
+	if apiKey == "" {
+		apiKey = os.Getenv("ANTHROPIC_API_KEY")
+	}
+
+	return llm.Config{
+		Provider:     provider,
+		ClaudeAPIKey: apiKey,
+		ClaudeModel:  claudeModel,
+	}
 }
 
 func generateReport(cmd *cobra.Command, args []string) {
@@ -144,6 +176,8 @@ func generateReport(cmd *cobra.Command, args []string) {
 
 	fmt.Printf("Generating report for %s (%s to %s)\n",
 		username, start.Format("2006-01-02"), end.Format("2006-01-02"))
+
+	llmCfg := resolveLLMConfig(cmd)
 
 	var sources []report.ActivitySource
 
@@ -196,7 +230,7 @@ func generateReport(cmd *cobra.Command, args []string) {
 		}
 
 		if len(listIDs) > 0 {
-			sources = append(sources, clickup.NewClickUpSource(token, listIDs, assigneeIDs, category))
+			sources = append(sources, clickup.NewClickUpSource(token, listIDs, assigneeIDs, category, llmCfg))
 		} else {
 			fmt.Println("No list IDs found. Provide --clickup-listid or --clickup-folderid")
 			return
@@ -244,7 +278,7 @@ func generateReport(cmd *cobra.Command, args []string) {
 		}
 
 		fmt.Printf("Using GitHub username: %s\n", ghUsername)
-		sources = append(sources, github.NewGitHubSource(ghToken, orgs, ghUsername, repos, githubIncludeReviewedPRs, githubIncludeAssignedIssues))
+		sources = append(sources, github.NewGitHubSource(ghToken, orgs, ghUsername, repos, githubIncludeReviewedPRs, githubIncludeAssignedIssues, llmCfg))
 	} else if ghToken != "" {
 		fmt.Println("GitHub token provided but orgs missing")
 	}
@@ -446,7 +480,7 @@ func generateSummary(cmd *cobra.Command, args []string) {
 			assigneeIDs[i] = strings.TrimSpace(assigneeIDs[i])
 		}
 	}
-	source := clickup.NewClickUpSource(token, listIDs, assigneeIDs, "")
+	source := clickup.NewClickUpSource(token, listIDs, assigneeIDs, "", resolveLLMConfig(cmd))
 
 	source.Client.SetListNames(listNames)
 

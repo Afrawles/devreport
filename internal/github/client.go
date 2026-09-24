@@ -318,6 +318,49 @@ func (c *Client) fetchAssignedIssues(ctx context.Context, start, end time.Time) 
 	return allIssues, nil
 }
 
+const maxDiffBytes = 20_000
+
+// fetchPRDiff concatenates per-file patches for a PR, truncated at maxDiffBytes
+// to keep a single LLM call cheap regardless of PR size.
+func (c *Client) fetchPRDiff(ctx context.Context, owner, repo string, prNumber int) (string, error) {
+	var sb strings.Builder
+
+	opts := &github.ListOptions{PerPage: 100}
+	for {
+		files, resp, err := c.client.PullRequests.ListFiles(ctx, owner, repo, prNumber, opts)
+		if err != nil {
+			if rateErr := c.handleRateLimit(resp, err); rateErr != nil {
+				return "", rateErr
+			}
+			return "", err
+		}
+
+		for _, f := range files {
+			if f.Patch == nil || f.Filename == nil {
+				continue
+			}
+			entry := fmt.Sprintf("--- %s ---\n%s\n", *f.Filename, *f.Patch)
+			if sb.Len()+len(entry) > maxDiffBytes {
+				remaining := maxDiffBytes - sb.Len()
+				if remaining > 0 {
+					sb.WriteString(entry[:remaining])
+				}
+				sb.WriteString("\n... [diff truncated]")
+				return sb.String(), nil
+			}
+			sb.WriteString(entry)
+		}
+
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	return sb.String(), nil
+}
+
 func (c *Client) getOrgRepos(ctx context.Context, org string) ([]*github.Repository, error) {
 	if repos, ok := c.repoCache[org]; ok {
 		return repos, nil

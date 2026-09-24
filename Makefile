@@ -24,8 +24,17 @@ REPORT_PERIOD    ?= $(shell date +%B)
 REPORT_YEAR      ?= $(shell date +%Y)
 REPORT_OUTPUT    ?= reports
 
+LLM_PROVIDER     ?= $(shell echo $$LLM_PROVIDER)
+CLAUDE_API_KEY   ?= $(shell echo $$ANTHROPIC_API_KEY)
+CLAUDE_MODEL     ?= $(shell echo $$CLAUDE_MODEL)
+OLLAMA_MODEL     ?= $(shell echo $$OLLAMA_MODEL)
+
+CLUSTER_INPUT    ?= $(shell echo $$CLUSTER_INPUT)
+CLUSTER_MIN_GROUP?= $(shell echo $$CLUSTER_MIN_GROUP)
+CLUSTER_BATCH    ?= $(shell echo $$CLUSTER_BATCH)
+
 .PHONY: help all build build/linux build/mac build/windows run clean \
-        run/github run/clickup run/all summary/clickup
+        run/github run/clickup run/all summary/clickup cluster
 
 ## help: Show this help message
 help:
@@ -77,7 +86,10 @@ run/github: build
 		--github-token "$(GITHUB_TOKEN)" \
 		--github-orgs "$(GITHUB_ORGS)" \
 		--github-username "$(GITHUB_USERNAME)" \
-		$(if $(GITHUB_REPOS),--github-repos "$(GITHUB_REPOS)",)
+		$(if $(GITHUB_REPOS),--github-repos "$(GITHUB_REPOS)",) \
+		$(if $(LLM_PROVIDER),--llm-provider "$(LLM_PROVIDER)",) \
+		$(if $(CLAUDE_API_KEY),--claude-api-key "$(CLAUDE_API_KEY)",) \
+		$(if $(CLAUDE_MODEL),--claude-model "$(CLAUDE_MODEL)",)
 
 ## run/clickup: Generate report from ClickUp only
 run/clickup: build
@@ -93,7 +105,10 @@ run/clickup: build
 		--clickup-token "$(CLICKUP_TOKEN)" \
 		--clickup-assignees "$(CLICKUP_ASSIGNEES)" \
 		$(if $(CLICKUP_FOLDERID),--clickup-folderid "$(CLICKUP_FOLDERID)",) \
-		$(if $(CLICKUP_LISTIDS),--clickup-listid "$(CLICKUP_LISTIDS)",)
+		$(if $(CLICKUP_LISTIDS),--clickup-listid "$(CLICKUP_LISTIDS)",) \
+		$(if $(LLM_PROVIDER),--llm-provider "$(LLM_PROVIDER)",) \
+		$(if $(CLAUDE_API_KEY),--claude-api-key "$(CLAUDE_API_KEY)",) \
+		$(if $(CLAUDE_MODEL),--claude-model "$(CLAUDE_MODEL)",)
 
 ## run/all: Generate report from both GitHub and ClickUp
 run/all: build
@@ -113,7 +128,10 @@ run/all: build
 		--clickup-token "$(CLICKUP_TOKEN)" \
 		--clickup-assignees "$(CLICKUP_ASSIGNEES)" \
 		$(if $(CLICKUP_FOLDERID),--clickup-folderid "$(CLICKUP_FOLDERID)",) \
-		$(if $(CLICKUP_LISTIDS),--clickup-listid "$(CLICKUP_LISTIDS)",)
+		$(if $(CLICKUP_LISTIDS),--clickup-listid "$(CLICKUP_LISTIDS)",) \
+		$(if $(LLM_PROVIDER),--llm-provider "$(LLM_PROVIDER)",) \
+		$(if $(CLAUDE_API_KEY),--claude-api-key "$(CLAUDE_API_KEY)",) \
+		$(if $(CLAUDE_MODEL),--claude-model "$(CLAUDE_MODEL)",)
 
 ## summary/clickup: Generate team summary (Excel) from ClickUp
 summary/clickup: build
@@ -123,7 +141,25 @@ summary/clickup: build
 		$(if $(CLICKUP_FOLDERID),--clickup-folderid "$(CLICKUP_FOLDERID)",) \
 		$(if $(CLICKUP_LISTIDS),--clickup-listid "$(CLICKUP_LISTIDS)",) \
 		$(if $(CLICKUP_ASSIGNEES),--clickup-assignees "$(CLICKUP_ASSIGNEES)",) \
+		$(if $(LLM_PROVIDER),--llm-provider "$(LLM_PROVIDER)",) \
+		$(if $(CLAUDE_API_KEY),--claude-api-key "$(CLAUDE_API_KEY)",) \
+		$(if $(CLAUDE_MODEL),--claude-model "$(CLAUDE_MODEL)",) \
 		--csv "$(REPORT_OUTPUT)"
+
+## cluster: Merge related/small tasks in an existing report (CLUSTER_INPUT=path.json|csv) into fewer rows
+cluster: build
+	@if [ -z "$(CLUSTER_INPUT)" ]; then echo "CLUSTER_INPUT is required, e.g. make cluster CLUSTER_INPUT=reports/report_x.json"; exit 1; fi
+	@echo "Clustering $(CLUSTER_INPUT)..."
+	@$(BINARY) cluster \
+		--input "$(CLUSTER_INPUT)" \
+		--output "$(REPORT_OUTPUT)" \
+		--author "$(REPORT_AUTHOR)" \
+		$(if $(LLM_PROVIDER),--llm-provider "$(LLM_PROVIDER)",) \
+		$(if $(CLAUDE_API_KEY),--claude-api-key "$(CLAUDE_API_KEY)",) \
+		$(if $(CLAUDE_MODEL),--claude-model "$(CLAUDE_MODEL)",) \
+		$(if $(OLLAMA_MODEL),--ollama-model "$(OLLAMA_MODEL)",) \
+		$(if $(CLUSTER_MIN_GROUP),--min-group "$(CLUSTER_MIN_GROUP)",) \
+		$(if $(CLUSTER_BATCH),--batch-size "$(CLUSTER_BATCH)",)
 
 ## run: Run the built binary (no args)
 run:

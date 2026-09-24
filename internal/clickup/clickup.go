@@ -1,22 +1,29 @@
 package clickup
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Afrawles/devreport/internal/llm"
 	"github.com/Afrawles/devreport/internal/report"
 )
+
+const defaultOllamaModel = "mistral-nemo:latest"
 
 type ClickUpSource struct {
 	Client   *Client
 	Category string
+	LLM      llm.Provider
 }
 
-func NewClickUpSource(apiKey string, listID, assigneeIDs []string, category string) *ClickUpSource {
+func NewClickUpSource(apiKey string, listID, assigneeIDs []string, category string, llmCfg llm.Config) *ClickUpSource {
+	llmCfg.OllamaModel = defaultOllamaModel
 	return &ClickUpSource{
 		Client:   NewClient(apiKey, listID, assigneeIDs),
 		Category: category,
+		LLM:      llm.New(llmCfg),
 	}
 }
 
@@ -66,7 +73,7 @@ func (c *ClickUpSource) FetchTasks(user string, start, end time.Time) ([]report.
 			projectName = t.List.Name
 		}
 
-		rephrased := rephraseTask(t.Description)
+		rephrased := rephraseTask(c.LLM, t.Description)
 		task := report.Task{
 			ID:              t.ID,
 			Title:           t.Name,
@@ -90,4 +97,29 @@ func (c *ClickUpSource) FetchTasks(user string, start, end time.Time) ([]report.
 	}
 
 	return allTasks, nil
+}
+
+func rephraseTask(p llm.Provider, taskDescription string) string {
+	if strings.TrimSpace(taskDescription) == "" {
+		return taskDescription
+	}
+
+	prompt := "Rephrase the following task description as a concise, professional achievement bullet point.\n\n" +
+		"STRICT RULES:\n" +
+		"1. Use strong action verbs and focus on the accomplishment\n" +
+		"2. For currency: Add 'UGX' prefix to numbers that represent money (e.g., '5000' becomes 'UGX 5000')\n" +
+		"3. PRESERVE all numerical values EXACTLY as written - do not modify, round, or change any numbers\n" +
+		"4. Only fix spelling errors and grammar mistakes\n" +
+		"5. Do NOT change the core meaning or description of the task\n" +
+		"6. Return only the rephrased text without bullet point symbols (•, -, *)\n\n" +
+		"Original description:\n" +
+		taskDescription
+
+	rephrased, err := p.Complete(prompt)
+	if err != nil {
+		fmt.Printf("%s unavailable for task rephrase: %v\n", p.Name(), err)
+		return taskDescription
+	}
+
+	return rephrased
 }

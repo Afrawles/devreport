@@ -6,17 +6,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Afrawles/devreport/internal/llm"
 	"github.com/Afrawles/devreport/internal/report"
 	gogithub "github.com/google/go-github/v60/github"
 )
 
+const defaultOllamaModel = "gemma4:e4b"
+
 type GitHubSource struct {
 	Client *Client
+	LLM    llm.Provider
 }
 
-func NewGitHubSource(token string, orgs []string, username string, repos []string, includeReviewedPRs, includeAssignedIssues bool) *GitHubSource {
+func NewGitHubSource(token string, orgs []string, username string, repos []string, includeReviewedPRs, includeAssignedIssues bool, llmCfg llm.Config) *GitHubSource {
+	llmCfg.OllamaModel = defaultOllamaModel
 	return &GitHubSource{
 		Client: NewClient(token, orgs, repos, username, includeReviewedPRs, includeAssignedIssues),
+		LLM:    llm.New(llmCfg),
 	}
 }
 
@@ -57,8 +63,7 @@ func (g *GitHubSource) FetchTasks(user string, start, end time.Time) ([]report.T
 				body = cleanActivityText(*pr.Body)
 			}
 
-			achievementInput := buildAchievementInput(title, body, entry.Commits)
-			achievement := rephrasePR(title, achievementInput)
+			achievement := g.buildAchievement(ctx, *pr.HTMLURL, *pr.Number, title, body, entry.Commits)
 
 			task := report.Task{
 				ID:           fmt.Sprintf("%d", *pr.Number),
@@ -100,7 +105,7 @@ func (g *GitHubSource) FetchTasks(user string, start, end time.Time) ([]report.T
 				body = cleanActivityText(*issue.Body)
 			}
 
-			achievement := rephraseCommit(title)
+			achievement := rephraseCommit(g.LLM, title)
 
 			task := report.Task{
 				ID:           fmt.Sprintf("%d", *issue.Number),
@@ -123,7 +128,47 @@ func (g *GitHubSource) FetchTasks(user string, start, end time.Time) ([]report.T
 	return allTasks, nil
 }
 
-// buildAchievementInput returns the best available text to feed into Ollama.
+// buildAchievement produces the report achievement text for a PR. When the
+// available title/body/commit text is too weak to describe the work, it
+// falls back to the PR diff instead of rephrasing near-empty input.
+func (g *GitHubSource) buildAchievement(ctx context.Context, htmlURL string, prNumber int, title, body string, commits []*gogithub.RepositoryCommit) string {
+	if isWeakInput(title, body, commits) {
+		owner, repo := extractOwnerRepo(htmlURL)
+		if owner != "" && repo != "" {
+			diff, err := g.Client.fetchPRDiff(ctx, owner, repo, prNumber)
+			if err == nil && strings.TrimSpace(diff) != "" {
+				return describeDiff(g.LLM, title, diff)
+			}
+			fmt.Printf("Diff fetch failed for PR #%d, falling back to text: %v\n", prNumber, err)
+		}
+	}
+
+	achievementInput := buildAchievementInput(title, body, commits)
+	return rephrasePR(g.LLM, title, achievementInput)
+}
+
+// isWeakInput reports whether the PR body, commit messages, and title all
+// carry too little signal to describe the change without looking at the diff.
+func isWeakInput(title, body string, commits []*gogithub.RepositoryCommit) bool {
+	if len(strings.TrimSpace(body)) >= 20 {
+		return false
+	}
+	if len(strings.TrimSpace(title)) >= 25 {
+		return false
+	}
+	for _, c := range commits {
+		if c.Commit == nil || c.Commit.Message == nil {
+			continue
+		}
+		msg := cleanActivityText(*c.Commit.Message)
+		if !shouldSkipCommitMessage(msg) && len(strings.TrimSpace(msg)) >= 15 {
+			return false
+		}
+	}
+	return true
+}
+
+// buildAchievementInput returns the best available text to feed into the LLM.
 // Priority: PR body > commit messages > PR title only.
 func buildAchievementInput(title, body string, commits []*gogithub.RepositoryCommit) string {
 	if strings.TrimSpace(body) != "" {
@@ -191,4 +236,88 @@ func extractRepoName(url string) string {
 		return parts[4]
 	}
 	return "unknown"
+}
+
+// extractOwnerRepo parses owner/repo out of a PR/issue HTML URL, e.g.
+// https://github.com/{owner}/{repo}/pull/{n}.
+func extractOwnerRepo(url string) (owner, repo string) {
+	parts := strings.Split(url, "/")
+	if len(parts) >= 5 {
+		return parts[3], parts[4]
+	}
+	return "", ""
+}
+
+func rephrasePR(p llm.Provider, title, body string) string {
+	input := title
+	if strings.TrimSpace(body) != "" {
+		input = title + "\n\n" + body
+	}
+
+	if strings.TrimSpace(input) == "" {
+		return input
+	}
+
+	prompt := "Rephrase the following pull request title and description as a concise, professional achievement bullet point.\n\n" +
+		"STRICT RULES:\n" +
+		"1. Use strong action verbs and focus on the accomplishment\n" +
+		"2. PRESERVE all numerical values, version numbers, and identifiers EXACTLY as written\n" +
+		"3. Only fix spelling errors and grammar mistakes\n" +
+		"4. Do NOT change the core meaning or technical details\n" +
+		"5. Keep it concise — one to two sentences max\n" +
+		"6. Return only the rephrased text without bullet point symbols (•, -, *)\n\n" +
+		"Pull request:\n" +
+		input
+
+	rephrased, err := p.Complete(prompt)
+	if err != nil {
+		fmt.Printf("%s unavailable for PR rephrase: %v\n", p.Name(), err)
+		return title
+	}
+
+	return rephrased
+}
+
+func rephraseCommit(p llm.Provider, message string) string {
+	if strings.TrimSpace(message) == "" {
+		return message
+	}
+
+	prompt := "Rephrase the following git commit message as a concise, professional achievement bullet point.\n\n" +
+		"STRICT RULES:\n" +
+		"1. Use strong action verbs and focus on the accomplishment\n" +
+		"2. PRESERVE all numerical values, version numbers, and identifiers EXACTLY as written\n" +
+		"3. Only fix spelling errors and grammar mistakes\n" +
+		"4. Do NOT change the core meaning or technical details\n" +
+		"5. Keep it concise — one sentence max\n" +
+		"6. Return only the rephrased text without bullet point symbols (•, -, *)\n\n" +
+		"Commit message:\n" +
+		message
+
+	rephrased, err := p.Complete(prompt)
+	if err != nil {
+		fmt.Printf("%s unavailable for commit rephrase: %v\n", p.Name(), err)
+		return message
+	}
+
+	return rephrased
+}
+
+func describeDiff(p llm.Provider, title, diff string) string {
+	prompt := "The following pull request has a missing or unhelpful description. " +
+		"Based on the code diff below, write a concise, professional one-to-two " +
+		"sentence achievement bullet point describing what was actually changed.\n\n" +
+		"STRICT RULES:\n" +
+		"1. Use strong action verbs and focus on the accomplishment\n" +
+		"2. Base the description only on what the diff shows — do not invent context\n" +
+		"3. Keep it concise — one to two sentences max\n" +
+		"4. Return only the rephrased text without bullet point symbols (•, -, *)\n\n" +
+		"PR title: " + title + "\n\nDiff:\n" + diff
+
+	result, err := p.Complete(prompt)
+	if err != nil || strings.TrimSpace(result) == "" {
+		fmt.Printf("%s unavailable for diff description: %v\n", p.Name(), err)
+		return title
+	}
+	return strings.TrimSpace(result)
 }
