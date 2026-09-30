@@ -1,7 +1,6 @@
 package clickup
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
