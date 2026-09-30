@@ -9,6 +9,7 @@ import (
 
 	"github.com/Afrawles/devreport/internal/clickup"
 	"github.com/Afrawles/devreport/internal/github"
+	"github.com/Afrawles/devreport/internal/llm"
 	"github.com/Afrawles/devreport/internal/report"
 	"github.com/spf13/cobra"
 
@@ -40,6 +41,10 @@ var (
 	githubIncludeAssignedIssues bool
 
 	githubRepos string
+
+	llmProvider  string
+	claudeAPIKey string
+	claudeModel  string
 )
 
 var rootCmd = &cobra.Command{
@@ -86,10 +91,10 @@ func init() {
 
 	rootCmd.Flags().StringVar(&author, "author", "", "report author")
 
-	rootCmd.Flags().StringVar(&challenges, "challenges", "", "Comma-separated challenges encountered (one per list)")
-	rootCmd.Flags().StringVar(&supportRequired, "support-required", "", "Comma-separated support required (one per list)")
-	rootCmd.Flags().StringVar(&supportFrom, "support-from", "", "Comma-separated support from (one per list)")
-	rootCmd.Flags().StringVar(&followUp, "follow-up", "", "Comma-separated follow up activities (one per list)")
+	rootCmd.Flags().StringVar(&challenges, "challenges", "", "Challenges per project: comma between projects (list IDs / repos in the order given), | between bullets, or \"Project=a|b\"")
+	rootCmd.Flags().StringVar(&supportRequired, "support-required", "", "Support required per project (same format as --challenges)")
+	rootCmd.Flags().StringVar(&supportFrom, "support-from", "", "Support from per project (same format as --challenges)")
+	rootCmd.Flags().StringVar(&followUp, "follow-up", "", "Follow up activities per project (same format as --challenges)")
 	rootCmd.Flags().StringVar(&period, "period", "Q2", "Reporting period (e.g., Q1, Q2, January, etc.)")
 	rootCmd.Flags().IntVar(&year, "year", time.Now().Year(), "Report year")
 
@@ -110,6 +115,33 @@ func init() {
 	summaryCmd.Flags().StringVar(&csvOutput, "csv", "reports", "Output directory for CSV reports")
 
 	rootCmd.Flags().StringVar(&githubRepos, "github-repos", "", "Comma-separated GitHub repository names to filter (optional, defaults to all org repos)")
+
+	rootCmd.Flags().StringVar(&llmProvider, "llm-provider", "ollama", "LLM backend for rephrasing achievements: ollama or claude")
+	rootCmd.Flags().StringVar(&claudeAPIKey, "claude-api-key", "", "Anthropic API key (or ANTHROPIC_API_KEY env var)")
+	rootCmd.Flags().StringVar(&claudeModel, "claude-model", "", "Anthropic model id (default: claude-sonnet-5)")
+	summaryCmd.Flags().StringVar(&llmProvider, "llm-provider", "ollama", "LLM backend for rephrasing achievements: ollama or claude")
+	summaryCmd.Flags().StringVar(&claudeAPIKey, "claude-api-key", "", "Anthropic API key (or ANTHROPIC_API_KEY env var)")
+	summaryCmd.Flags().StringVar(&claudeModel, "claude-model", "", "Anthropic model id (default: claude-sonnet-5)")
+}
+
+func resolveLLMConfig(cmd *cobra.Command) llm.Config {
+	provider := llmProvider
+	if !cmd.Flags().Changed("llm-provider") {
+		if v := os.Getenv("LLM_PROVIDER"); v != "" {
+			provider = v
+		}
+	}
+
+	apiKey := claudeAPIKey
+	if apiKey == "" {
+		apiKey = os.Getenv("ANTHROPIC_API_KEY")
+	}
+
+	return llm.Config{
+		Provider:     provider,
+		ClaudeAPIKey: apiKey,
+		ClaudeModel:  claudeModel,
+	}
 }
 
 func generateReport(cmd *cobra.Command, args []string) {
@@ -144,6 +176,8 @@ func generateReport(cmd *cobra.Command, args []string) {
 
 	fmt.Printf("Generating report for %s (%s to %s)\n",
 		username, start.Format("2006-01-02"), end.Format("2006-01-02"))
+
+	llmCfg := resolveLLMConfig(cmd)
 
 	var sources []report.ActivitySource
 
@@ -196,7 +230,7 @@ func generateReport(cmd *cobra.Command, args []string) {
 		}
 
 		if len(listIDs) > 0 {
-			sources = append(sources, clickup.NewClickUpSource(token, listIDs, assigneeIDs, category))
+			sources = append(sources, clickup.NewClickUpSource(token, listIDs, assigneeIDs, category, llmCfg))
 		} else {
 			fmt.Println("No list IDs found. Provide --clickup-listid or --clickup-folderid")
 			return
@@ -244,7 +278,7 @@ func generateReport(cmd *cobra.Command, args []string) {
 		}
 
 		fmt.Printf("Using GitHub username: %s\n", ghUsername)
-		sources = append(sources, github.NewGitHubSource(ghToken, orgs, ghUsername, repos, githubIncludeReviewedPRs, githubIncludeAssignedIssues))
+		sources = append(sources, github.NewGitHubSource(ghToken, orgs, ghUsername, repos, githubIncludeReviewedPRs, githubIncludeAssignedIssues, llmCfg))
 	} else if ghToken != "" {
 		fmt.Println("GitHub token provided but orgs missing")
 	}
@@ -274,24 +308,31 @@ func generateReport(cmd *cobra.Command, args []string) {
 
 	fmt.Printf("Fetched %d tasks\n\n", len(tasks))
 
-	challengesList := parseCommaList(challenges)
-	supportRequiredList := parseCommaList(supportRequired)
-	supportFromList := parseCommaList(supportFrom)
-	followUpList := parseCommaList(followUp)
-
-	for i := range tasks {
-		if i < len(challengesList) {
-			tasks[i].Challenges = challengesList[i]
+	// Notes go to projects (ClickUp lists / GitHub repos), not to rows: the
+	// first comma group belongs to the first list ID / repo passed, and so on.
+	var explicitProjects []string
+	if folderID == "" {
+		explicitProjects = append(explicitProjects, strings.Split(listIDstr, ",")...)
+	}
+	if githubRepos != "" {
+		explicitProjects = append(explicitProjects, strings.Split(githubRepos, ",")...)
+	}
+	notes := report.NoteColumns{
+		Challenges:      challenges,
+		SupportRequired: supportRequired,
+		SupportFrom:     supportFrom,
+		FollowUp:        followUp,
+	}
+	if notes != (report.NoteColumns{}) {
+		order := report.ProjectOrder(tasks, explicitProjects)
+		fmt.Println("Challenges/support/follow-up groups map to projects in this order (or use \"Project=...\"):")
+		for i, p := range order {
+			fmt.Printf("  %d. %s\n", i+1, p)
 		}
-		if i < len(supportRequiredList) {
-			tasks[i].SupportRequired = supportRequiredList[i]
+		for _, w := range report.ApplyProjectNotes(tasks, order, notes) {
+			fmt.Println("  warning:", w)
 		}
-		if i < len(supportFromList) {
-			tasks[i].SupportFrom = supportFromList[i]
-		}
-		if i < len(followUpList) {
-			tasks[i].FollowUp = followUpList[i]
-		}
+		fmt.Println()
 	}
 
 	err = os.MkdirAll(output, 0755)
@@ -446,7 +487,7 @@ func generateSummary(cmd *cobra.Command, args []string) {
 			assigneeIDs[i] = strings.TrimSpace(assigneeIDs[i])
 		}
 	}
-	source := clickup.NewClickUpSource(token, listIDs, assigneeIDs, "")
+	source := clickup.NewClickUpSource(token, listIDs, assigneeIDs, "", resolveLLMConfig(cmd))
 
 	source.Client.SetListNames(listNames)
 

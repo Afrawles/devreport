@@ -12,6 +12,7 @@ type Task struct {
 	UpdatedAt       time.Time
 	CompletedAt     *time.Time
 	Source          string
+	ProjectID       string // ClickUp list ID; empty for GitHub (Source is the repo)
 	Type            string
 	Labels          []string
 	Assignee        string
