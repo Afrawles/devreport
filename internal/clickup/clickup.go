@@ -85,6 +85,7 @@ func (c *ClickUpSource) FetchTasks(user string, start, end time.Time) ([]report.
 			UpdatedAt:       updatedAt,
 			CompletedAt:     completedAt,
 			Source:          projectName,
+			ProjectID:       t.List.ID,
 			Type:            "Task",
 			Assignee:        assignee,
 			Challenges:      "",

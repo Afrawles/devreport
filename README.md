@@ -163,6 +163,10 @@ Explanation:
 - Everything before the first comma (`,`) belongs to **List 11111111**  
 - Everything after the comma belongs to **List 33333333**  
 - Within each group, `|` separates sentences for that list  
+- The text goes on the first row of that list's project section (not on every row)
+- For GitHub, groups follow the order of `--github-repos` (after any ClickUp lists); without `--github-repos` (or with `--clickup-folderid`) projects are taken alphabetically, as they appear in the report. The run prints the order it used.
+- You can also name the project instead of relying on order: `--challenges "Smart Parking=Delayed client feedback|Unclear UI specifications, pidmis-backend=Deployment delays"`
+- Challenges are not generated for GitHub or ClickUp activities; they only come from these flags. (The `docs` command below does suggest them from commits.)
 
 ---
 
@@ -234,6 +238,37 @@ This file (report export) contains the task summary, categorized sections, and A
 devreport summary --period <period> --clickup-token "<token>" --clickup-folderid <folder-id>
 
 ```
+
+### Word Report Grouped by Module (`docs`)
+
+Builds the "Individual Report" Word table from **local git repositories**: commits are grouped into feature modules per codebase (Backend, Web, Mobile…), fixes go under the module they touch, and each module lists the developers who worked on it and the date of its last commit.
+
+```sh
+./devreport docs \
+  --repo "Backend=~/work/iras/pidmis-backend" \
+  --repo "Web=~/work/iras/pidmis-frontend" \
+  --repo "Mobile=~/work/iras/pidmis-mobile" \
+  --start 2026-07-01 --end 2026-09-30 \
+  --author "Moses Odeke" --dept "Software Development" \
+  --template "Individual Report Template.docx" \
+  --llm-provider claude
+```
+
+- `--group llm` (default): the LLM names the modules and writes short achievement bullets. Commits it fails to place fall back to path grouping, so nothing is dropped.
+- Challenges: filled in only when commits show a real problem (a crash, revert, rollback, workaround, the same fix repeated), otherwise left empty. In `llm` mode the model judges this; in `path` mode commit messages with words like crash, revert, rollback, hotfix, workaround or timeout are used.
+- `--group path`: no LLM. Modules come from the folders each commit changed (`pidmis_gis/` → GIS, `src/features/water-network/` → Water Network) and bullets are the cleaned-up commit messages. Quicker, but noisier.
+- `--template`: the first table in the template is replaced, the rest (header, notes) is kept. Without it a document in the same layout is created.
+- `--dev "Moses"`: only your own commits (matches name or email).
+- `--alias "izaiah-m=Izaiah Mukisa"`: merge a git handle into a name. Handles are also matched to full names automatically from GitHub merge commits, and the run prints every developer with the git identities behind them.
+- Reads all branches by default (`--branch main` for one), skips merge commits, and counts a repo listed twice only once.
+
+A `modules_*.json` is saved next to the `.docx`. Edit it (rename or merge modules, correct challenges, fill in support and follow up) and re-render:
+
+```sh
+./devreport docs --input reports/modules_20260930_120000.json --template "Individual Report Template.docx"
+```
+
+Or with make: `make docs DOCS_REPOS="Backend=~/work/app-backend,Web=~/work/app-web" DOCS_TEMPLATE=template.docx`
 
 ## Supported Periods
 

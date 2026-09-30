@@ -91,10 +91,10 @@ func init() {
 
 	rootCmd.Flags().StringVar(&author, "author", "", "report author")
 
-	rootCmd.Flags().StringVar(&challenges, "challenges", "", "Comma-separated challenges encountered (one per list)")
-	rootCmd.Flags().StringVar(&supportRequired, "support-required", "", "Comma-separated support required (one per list)")
-	rootCmd.Flags().StringVar(&supportFrom, "support-from", "", "Comma-separated support from (one per list)")
-	rootCmd.Flags().StringVar(&followUp, "follow-up", "", "Comma-separated follow up activities (one per list)")
+	rootCmd.Flags().StringVar(&challenges, "challenges", "", "Challenges per project: comma between projects (list IDs / repos in the order given), | between bullets, or \"Project=a|b\"")
+	rootCmd.Flags().StringVar(&supportRequired, "support-required", "", "Support required per project (same format as --challenges)")
+	rootCmd.Flags().StringVar(&supportFrom, "support-from", "", "Support from per project (same format as --challenges)")
+	rootCmd.Flags().StringVar(&followUp, "follow-up", "", "Follow up activities per project (same format as --challenges)")
 	rootCmd.Flags().StringVar(&period, "period", "Q2", "Reporting period (e.g., Q1, Q2, January, etc.)")
 	rootCmd.Flags().IntVar(&year, "year", time.Now().Year(), "Report year")
 
@@ -308,24 +308,31 @@ func generateReport(cmd *cobra.Command, args []string) {
 
 	fmt.Printf("Fetched %d tasks\n\n", len(tasks))
 
-	challengesList := parseCommaList(challenges)
-	supportRequiredList := parseCommaList(supportRequired)
-	supportFromList := parseCommaList(supportFrom)
-	followUpList := parseCommaList(followUp)
-
-	for i := range tasks {
-		if i < len(challengesList) {
-			tasks[i].Challenges = challengesList[i]
+	// Notes go to projects (ClickUp lists / GitHub repos), not to rows: the
+	// first comma group belongs to the first list ID / repo passed, and so on.
+	var explicitProjects []string
+	if folderID == "" {
+		explicitProjects = append(explicitProjects, strings.Split(listIDstr, ",")...)
+	}
+	if githubRepos != "" {
+		explicitProjects = append(explicitProjects, strings.Split(githubRepos, ",")...)
+	}
+	notes := report.NoteColumns{
+		Challenges:      challenges,
+		SupportRequired: supportRequired,
+		SupportFrom:     supportFrom,
+		FollowUp:        followUp,
+	}
+	if notes != (report.NoteColumns{}) {
+		order := report.ProjectOrder(tasks, explicitProjects)
+		fmt.Println("Challenges/support/follow-up groups map to projects in this order (or use \"Project=...\"):")
+		for i, p := range order {
+			fmt.Printf("  %d. %s\n", i+1, p)
 		}
-		if i < len(supportRequiredList) {
-			tasks[i].SupportRequired = supportRequiredList[i]
+		for _, w := range report.ApplyProjectNotes(tasks, order, notes) {
+			fmt.Println("  warning:", w)
 		}
-		if i < len(supportFromList) {
-			tasks[i].SupportFrom = supportFromList[i]
-		}
-		if i < len(followUpList) {
-			tasks[i].FollowUp = followUpList[i]
-		}
+		fmt.Println()
 	}
 
 	err = os.MkdirAll(output, 0755)

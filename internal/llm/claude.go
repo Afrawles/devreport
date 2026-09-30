@@ -40,6 +40,8 @@ type ClaudeProvider struct {
 	Model   string
 	BaseURL string
 	Client  *http.Client
+	// MaxTokens caps the response length; 0 means 1024.
+	MaxTokens int
 }
 
 func NewClaudeProvider(apiKey, model string) *ClaudeProvider {
@@ -54,6 +56,13 @@ func NewClaudeProvider(apiKey, model string) *ClaudeProvider {
 	}
 }
 
+func (c *ClaudeProvider) maxTokens() int {
+	if c.MaxTokens > 0 {
+		return c.MaxTokens
+	}
+	return 1024
+}
+
 func (c *ClaudeProvider) Name() string {
 	return "claude"
 }
@@ -65,7 +74,7 @@ func (c *ClaudeProvider) Complete(prompt string) (string, error) {
 
 	reqBody, err := json.Marshal(claudeRequest{
 		Model:     c.Model,
-		MaxTokens: 1024,
+		MaxTokens: c.maxTokens(),
 		Messages: []claudeMessage{
 			{Role: "user", Content: prompt},
 		},

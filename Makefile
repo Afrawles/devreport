@@ -33,8 +33,14 @@ CLUSTER_INPUT    ?= $(shell echo $$CLUSTER_INPUT)
 CLUSTER_MIN_GROUP?= $(shell echo $$CLUSTER_MIN_GROUP)
 CLUSTER_BATCH    ?= $(shell echo $$CLUSTER_BATCH)
 
+DOCS_REPOS       ?= $(shell echo $$DOCS_REPOS)
+DOCS_TEMPLATE    ?= $(shell echo $$DOCS_TEMPLATE)
+DOCS_DEPT        ?= $(shell echo $$DOCS_DEPT)
+DOCS_GROUP       ?= llm
+comma := ,
+
 .PHONY: help all build build/linux build/mac build/windows run clean \
-        run/github run/clickup run/all summary/clickup cluster
+        run/github run/clickup run/all summary/clickup cluster docs
 
 ## help: Show this help message
 help:
@@ -160,6 +166,23 @@ cluster: build
 		$(if $(OLLAMA_MODEL),--ollama-model "$(OLLAMA_MODEL)",) \
 		$(if $(CLUSTER_MIN_GROUP),--min-group "$(CLUSTER_MIN_GROUP)",) \
 		$(if $(CLUSTER_BATCH),--batch-size "$(CLUSTER_BATCH)",)
+
+## docs: Word report grouped by module from local git repos (DOCS_REPOS="Backend=path,Web=path")
+docs: build
+	@if [ -z "$(DOCS_REPOS)" ]; then echo 'DOCS_REPOS is required, e.g. make docs DOCS_REPOS="Backend=~/work/app-backend,Web=~/work/app-web"'; exit 1; fi
+	@$(BINARY) docs \
+		$(foreach r,$(subst $(comma), ,$(DOCS_REPOS)),--repo "$(r)") \
+		--start "$(REPORT_START)" \
+		--end "$(REPORT_END)" \
+		--author "$(REPORT_AUTHOR)" \
+		--output "$(REPORT_OUTPUT)" \
+		--group "$(DOCS_GROUP)" \
+		$(if $(DOCS_DEPT),--dept "$(DOCS_DEPT)",) \
+		$(if $(DOCS_TEMPLATE),--template "$(DOCS_TEMPLATE)",) \
+		$(if $(LLM_PROVIDER),--llm-provider "$(LLM_PROVIDER)",) \
+		$(if $(CLAUDE_API_KEY),--claude-api-key "$(CLAUDE_API_KEY)",) \
+		$(if $(CLAUDE_MODEL),--claude-model "$(CLAUDE_MODEL)",) \
+		$(if $(OLLAMA_MODEL),--ollama-model "$(OLLAMA_MODEL)",)
 
 ## run: Run the built binary (no args)
 run:
